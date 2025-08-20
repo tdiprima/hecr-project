@@ -84,7 +84,11 @@ class InterfolioAPI:
             "/activities/-21", f"?data=detailed&userlist={user_id}"
         )
         if data and isinstance(data, list):
+            print(f"DEBUG: User {user_id} has {len(data)} activities")
+            if len(data) > 0:
+                print(f"DEBUG: First activity sample: {json.dumps(data[0], indent=2)[:500]}...")
             return data
+        print(f"DEBUG: No activities returned for user {user_id}, data: {data}")
         return []
 
 
@@ -128,12 +132,17 @@ class DataCollector:
         fields = activity_data.get("fields", {})
         activity_type = fields.get("Type", "")
 
+        print(f"DEBUG: _create_publication - activity_type: '{activity_type}'")
+        
         if activity_type not in ["Journal Article", "Book"]:
+            print(f"DEBUG: Skipping publication - type '{activity_type}' not in allowed types")
             return None
 
         status_info = (
             activity_data.get("status", [{}])[0] if activity_data.get("status") else {}
         )
+        
+        print(f"DEBUG: Creating publication with title: '{fields.get('Title')}'")
 
         return Publication(
             user_id=user_id,
@@ -206,11 +215,6 @@ class DataCollector:
         user_id = str(user_data.get("userid", ""))
         if not user_id:
             return
-            
-        # Skip staff users
-        if user_data.get("employmentstatus") == "Staff":
-            print(f"Skipping staff user {user_id}")
-            return
 
         session = self.session_factory()
         try:
@@ -227,15 +231,25 @@ class DataCollector:
 
             for activity in activities:
                 try:
+                    activity_type = activity.get("fields", {}).get("Type", "Unknown")
+                    print(f"DEBUG: Processing activity type: {activity_type}")
+                    
                     publication = self._create_publication(activity, user_id)
                     if publication:
                         session.merge(publication)
                         publications_added += 1
+                        print(f"DEBUG: Added publication: {publication.title}")
+                    else:
+                        print(f"DEBUG: Skipped publication for type: {activity_type}")
 
                     grant = self._create_grant(activity, user_id)
                     if grant:
                         session.merge(grant)
                         grants_added += 1
+                        print(f"DEBUG: Added grant: {grant.title}")
+                    else:
+                        grant_id = activity.get("fields", {}).get("Grant ID / Contract ID")
+                        print(f"DEBUG: Skipped grant, has Grant ID: {bool(grant_id)}")
 
                 except IntegrityError:
                     session.rollback()
