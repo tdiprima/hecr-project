@@ -3,20 +3,19 @@ import base64
 import datetime
 import hashlib
 import hmac
-import json
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
+from halo import Halo
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, Grant, Publication, User
+from models import Grant, Publication, User
 
 
 class InterfolioAPI:
@@ -248,9 +247,7 @@ class DataCollector:
                 self.stats["publications_added"] += publications_added
                 self.stats["grants_added"] += grants_added
 
-            print(
-                f"Processed user {user_id}: {publications_added} publications, {grants_added} grants"
-            )
+            # print(f"Processed user {user_id}: {publications_added} publications, {grants_added} grants")
 
         except Exception as e:
             session.rollback()
@@ -261,11 +258,12 @@ class DataCollector:
             session.close()
 
     def collect_data(self, max_workers: int = 16):
-        print("Starting data collection...")
+        spinner = Halo(text="Starting data collection...", spinner="dots", color="magenta")
+        spinner.start()
 
         users = self.api.get_users()
         if not users:
-            print("No users found or error fetching users")
+            spinner.fail("❌ No users found or error fetching users")
             return
 
         print(f"Processing {len(users)} users with {max_workers} workers...")
@@ -276,14 +274,14 @@ class DataCollector:
             for i, future in enumerate(as_completed(futures), 1):
                 try:
                     future.result()
-                    if i % 10 == 0:
+                    if i % 1000 == 0:
                         with self.stats_lock:
                             print(f"Progress: {i}/{len(users)} users processed")
                             print(f"Stats: {self.stats}")
                 except Exception as e:
-                    print(f"Task failed: {e}")
+                    spinner.fail(f"❌ Task failed: {e}")
 
-        print("\nData collection completed!")
+        spinner.succeed("\n✅ Data collection completed!")
         print(f"Final stats: {self.stats}")
 
 

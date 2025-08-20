@@ -5,10 +5,9 @@ import hashlib
 import hmac
 import json
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -16,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, Grant, Publication, User
+from models import Grant, Publication, User
 
 
 class InterfolioAPI:
