@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Fixed script to collect publications and grants using /activities/-21 endpoint
+This script reads user data from a database, then uses the Interfolio API
+to retrieve and store their activity data, including publications and grants.
 """
 import base64
 import datetime

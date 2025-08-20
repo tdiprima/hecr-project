@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+This script fetches user data from the Interfolio API and stores it in the database.
+It was originally intended to also fetch user activities, but that feature
+was moved to collect_activities.py due to issues with the API endpoint.
+"""
 import base64
 import datetime
 import hashlib
