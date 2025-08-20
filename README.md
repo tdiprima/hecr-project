@@ -5,11 +5,13 @@ Phase 1: Data Gathering - Pulls users, publications, and grants from the Interfo
 ## Setup
 
 1. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
 
-2. Configure environment variables in `.env` (copy from parent directory):
+2. Configure environment variables in `.env`:
+
    ```
    DATABASE_URL=postgresql://admin:secret@localhost/research
    API_PUBLIC_KEY=your_interfolio_public_key
@@ -18,14 +20,24 @@ Phase 1: Data Gathering - Pulls users, publications, and grants from the Interfo
    ```
 
 3. Create database tables:
+
    ```bash
    python create_db.py
    ```
 
 4. Run data collection:
+
    ```bash
    python gather_data.py
    ```
+
+### Create PostgreSQL user and database
+
+```sh
+createuser -s admin
+createdb -O admin research
+psql -d postgres -c "ALTER USER admin PASSWORD 'secret';"
+```
 
 ## Features
 
@@ -42,3 +54,5 @@ Phase 1: Data Gathering - Pulls users, publications, and grants from the Interfo
 - **grants**: Grant funding information
 
 All linked by foreign key relationships with proper indexing.
+
+<br>
