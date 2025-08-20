@@ -1,21 +1,44 @@
 # Interfolio Data Collector
 
-  ### Created files:
-  - `models.py` - SQLAlchemy models for User, Publication, and Grant tables
-  - `create_db.py` - Script to create database tables
-  - `gather_data.py` - Multi-threaded data collection script using 16 cores
-  - requirements.txt - Python dependencies
-  - README.md - Setup and usage instructions
+Phase 1: Data Gathering - Pulls users, publications, and grants from the Interfolio API and stores them in PostgreSQL.
 
-  ### Key features implemented:
-  - Efficient 16-core multi-threading for API calls
-  - Proper Interfolio API authentication based on far_example.py
-  - SQLAlchemy ORM with comprehensive data models
-  - Error handling and progress statistics
-  - Support for Journal Articles, Books, and Grants
-  - Duplicate record handling with merge operations
+## Setup
 
-  ### Usage:
-  1. pip install -r requirements.txt
-  2. python `create_db.py`
-  3. python `gather_data.py`
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Configure environment variables in `.env` (copy from parent directory):
+   ```
+   DATABASE_URL=postgresql://admin:secret@localhost/research
+   API_PUBLIC_KEY=your_interfolio_public_key
+   API_PRIVATE_KEY=your_interfolio_private_key
+   TENANT_1_DATABASE_ID=your_database_id
+   ```
+
+3. Create database tables:
+   ```bash
+   python create_db.py
+   ```
+
+4. Run data collection:
+   ```bash
+   python gather_data.py
+   ```
+
+## Features
+
+- **Multi-threaded processing**: Uses 16 cores efficiently for concurrent API calls
+- **SQLAlchemy ORM**: Clean database models and operations
+- **Error handling**: Robust error handling with statistics tracking
+- **Data types supported**: Journal Articles, Books, and Grants
+- **Duplicate handling**: Uses merge operations to handle existing records
+
+## Database Schema
+
+- **users**: User profiles from Interfolio
+- **publications**: Journal articles and books  
+- **grants**: Grant funding information
+
+All linked by foreign key relationships with proper indexing.
