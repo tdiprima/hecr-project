@@ -208,7 +208,7 @@ class DataCollector:
             
         # Skip staff users
         if user_data.get("employmentstatus") == "Staff":
-            print(f"Skipping staff user {user_id}")
+            # print(f"Skipping staff user {user_id}")
             return
 
         session = self.session_factory()
@@ -258,7 +258,7 @@ class DataCollector:
             session.close()
 
     def collect_data(self, max_workers: int = 16):
-        spinner = Halo(text="Starting data collection...", spinner="dots", color="magenta")
+        spinner = Halo(text="Running...", spinner="line", color="magenta")
         spinner.start()
 
         users = self.api.get_users()
