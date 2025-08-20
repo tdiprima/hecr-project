@@ -143,6 +143,12 @@ class ActivityCollector:
             "db_errors": 0,
         }
 
+    def _truncate_field(self, value: Optional[str], max_length: int) -> Optional[str]:
+        """Truncate a field to max_length if it's too long"""
+        if value and len(str(value)) > max_length:
+            return str(value)[:max_length]
+        return value
+
     def _create_publication(self, activity_data: Dict, user_id: str) -> Optional[Publication]:
         """Create a Publication object from activity data"""
         try:
@@ -166,30 +172,32 @@ class ActivityCollector:
             if year:
                 year = str(year)[:4] if len(str(year)) >= 4 else str(year)
 
+            # Truncate fields to match database constraints
+            # Most varchar fields are 50 or 255 characters
             return Publication(
                 user_id=user_id,
                 activityid=activity_data.get("activityid"),
-                type=activity_type,
-                title=fields.get("Title"),
-                journal=fields.get("Journal Title"),
-                series_title=fields.get("Series Title"),
-                year=year,
-                month_season=fields.get("Month / Season"),
-                publisher=fields.get("Publisher"),
-                publisher_city_state=fields.get("Publisher City and State"),
-                publisher_country=fields.get("Publisher Country"),
-                volume=fields.get("Volume"),
-                issue_number=fields.get("Issue Number / Edition"),
-                page_numbers=fields.get("Page Number(s) or Number of Pages"),
-                isbn=fields.get("ISBN"),
-                issn=fields.get("ISSN"),
-                doi=fields.get("DOI"),
-                url=fields.get("URL"),
-                description=fields.get("Description"),
-                origin=fields.get("Origin"),
-                status=status_info.get("status") if status_info else None,
-                term=status_info.get("term") if status_info else None,
-                status_year=str(status_info.get("year")) if status_info and status_info.get("year") else None,
+                type=self._truncate_field(activity_type, 50),
+                title=self._truncate_field(fields.get("Title"), 255),
+                journal=self._truncate_field(fields.get("Journal Title"), 255),
+                series_title=self._truncate_field(fields.get("Series Title"), 255),
+                year=self._truncate_field(year, 4),
+                month_season=self._truncate_field(fields.get("Month / Season"), 50),
+                publisher=self._truncate_field(fields.get("Publisher"), 255),
+                publisher_city_state=self._truncate_field(fields.get("Publisher City and State"), 255),
+                publisher_country=self._truncate_field(fields.get("Publisher Country"), 100),
+                volume=self._truncate_field(fields.get("Volume"), 50),
+                issue_number=self._truncate_field(fields.get("Issue Number / Edition"), 50),
+                page_numbers=self._truncate_field(fields.get("Page Number(s) or Number of Pages"), 50),
+                isbn=self._truncate_field(fields.get("ISBN"), 20),
+                issn=self._truncate_field(fields.get("ISSN"), 20),
+                doi=self._truncate_field(fields.get("DOI"), 255),
+                url=self._truncate_field(fields.get("URL"), 500),
+                description=fields.get("Description"),  # TEXT field, no truncation needed
+                origin=self._truncate_field(fields.get("Origin"), 50),
+                status=self._truncate_field(status_info.get("status") if status_info else None, 50),
+                term=self._truncate_field(status_info.get("term") if status_info else None, 50),
+                status_year=self._truncate_field(str(status_info.get("year")) if status_info and status_info.get("year") else None, 4),
             )
         except Exception as e:
             if self.verbose:
@@ -237,29 +245,30 @@ class ActivityCollector:
                 fields.get("Amount")
             )
 
+            # Truncate fields to match database constraints
             return Grant(
                 user_id=user_id,
                 activityid=activity_data.get("activityid"),
-                title=fields.get("Title"),
-                sponsor=fields.get("Sponsor"),
-                grant_id=fields.get("Grant ID / Contract ID"),
+                title=self._truncate_field(fields.get("Title"), 255),
+                sponsor=self._truncate_field(fields.get("Sponsor"), 255),
+                grant_id=self._truncate_field(fields.get("Grant ID / Contract ID"), 100),
                 award_date=fields.get("Award Date"),
                 start_date=fields.get("Start Date"),
                 end_date=fields.get("End Date"),
                 period_length=fields.get("Period Length"),
-                period_unit=fields.get("Period Unit"),
+                period_unit=self._truncate_field(fields.get("Period Unit"), 50),
                 indirect_funding=fields.get("Indirect Funding"),
-                indirect_cost_rate=fields.get("Indirect Cost Rate"),
-                total_funding=total_funding,
-                total_direct_funding=fields.get("Total Direct Funding"),
-                currency_type=fields.get("Currency Type"),
-                description=fields.get("Description"),
-                abstract=fields.get("Abstract"),
+                indirect_cost_rate=self._truncate_field(fields.get("Indirect Cost Rate"), 50),
+                total_funding=self._truncate_field(str(total_funding) if total_funding else None, 50),
+                total_direct_funding=self._truncate_field(str(fields.get("Total Direct Funding")) if fields.get("Total Direct Funding") else None, 50),
+                currency_type=self._truncate_field(fields.get("Currency Type"), 10),
+                description=fields.get("Description"),  # TEXT field, no truncation needed
+                abstract=fields.get("Abstract"),  # TEXT field, no truncation needed
                 number_of_periods=fields.get("Number of Periods"),
-                url=fields.get("URL"),
-                status=status_info.get("status") if status_info else None,
-                term=status_info.get("term") if status_info else None,
-                status_year=str(status_info.get("year")) if status_info and status_info.get("year") else None,
+                url=self._truncate_field(fields.get("URL"), 500),
+                status=self._truncate_field(status_info.get("status") if status_info else None, 50),
+                term=self._truncate_field(status_info.get("term") if status_info else None, 50),
+                status_year=self._truncate_field(str(status_info.get("year")) if status_info and status_info.get("year") else None, 4),
             )
         except Exception as e:
             if self.verbose:
