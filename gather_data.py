@@ -205,7 +205,7 @@ class DataCollector:
         user_id = str(user_data.get("userid", ""))
         if not user_id:
             return
-            
+
         # Skip staff users
         if user_data.get("employmentstatus") == "Staff":
             # print(f"Skipping staff user {user_id}")
