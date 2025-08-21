@@ -3,6 +3,9 @@
 This script fetches user data from the Interfolio API and stores it in the database.
 It was originally intended to also fetch user activities, but that feature
 was moved to collect_activities.py due to issues with the API endpoint.
+It didn't work because:
+1. It was expecting a flat list but got a nested dictionary
+2. It didn't know that grants were in a different endpoint (-11 instead of -21)
 """
 import base64
 import datetime
