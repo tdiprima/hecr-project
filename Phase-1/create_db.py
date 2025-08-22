@@ -10,9 +10,7 @@ from models import Base
 def create_database_tables():
     load_dotenv()
 
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://admin:secret@localhost/research"
-    )
+    database_url = os.getenv("DATABASE_URL")
 
     print(f"Connecting to database: {database_url.split('@')[1]}")
 

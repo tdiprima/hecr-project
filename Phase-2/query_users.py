@@ -3,10 +3,14 @@
 Query users who have records in publications or grants tables.
 """
 
+import os
 import signal
 import sys
+
 import psycopg2
-from psycopg2 import sql
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def signal_handler(sig, frame):
@@ -20,17 +24,17 @@ def get_active_users():
     try:
         # Register signal handler for Ctrl-C
         signal.signal(signal.SIGINT, signal_handler)
-        
+
         # Connect to PostgreSQL
         conn = psycopg2.connect(
             host="localhost",
-            database="research", 
-            user="admin",
-            password="secret"
+            database="research",
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASS"),
         )
-        
+
         cursor = conn.cursor()
-        
+
         # Query users who have publications or grants
         query = """
         SELECT DISTINCT u.firstname, u.lastname
@@ -44,18 +48,18 @@ def get_active_users():
         AND u.lastname != 'zzFaculty'
         ORDER BY u.lastname, u.firstname;
         """
-        
+
         cursor.execute(query)
         users = cursor.fetchall()
-        
+
         print(f"Found {len(users)} users with publications or grants:\n")
-        
+
         for firstname, lastname in users:
             print(f"{firstname} {lastname}")
-        
+
         cursor.close()
         conn.close()
-        
+
     except psycopg2.Error as e:
         print(f"Database error: {e}")
         sys.exit(1)

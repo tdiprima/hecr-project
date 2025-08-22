@@ -124,9 +124,7 @@ class InterfolioAPI:
 class ActivityCollector:
     def __init__(self, verbose=False):
         load_dotenv()
-        self.database_url = os.getenv(
-            "DATABASE_URL", "postgresql://admin:secret@localhost/research"
-        )
+        self.database_url = os.getenv("DATABASE_URL")
         self.engine = create_engine(self.database_url, pool_size=20, max_overflow=30)
         self.session_factory = sessionmaker(bind=self.engine)
         self.api = InterfolioAPI()

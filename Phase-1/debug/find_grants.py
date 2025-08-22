@@ -79,9 +79,7 @@ class InterfolioAPI:
 
 def find_grants():
     load_dotenv()
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://admin:secret@localhost/research"
-    )
+    database_url = os.getenv("DATABASE_URL")
 
     engine = create_engine(database_url)
     Session = sessionmaker(bind=engine)

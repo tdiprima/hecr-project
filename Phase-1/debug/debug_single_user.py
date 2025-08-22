@@ -219,9 +219,7 @@ def test_grant_creation(activity: Dict, user_id: str) -> Optional[Grant]:
 def debug_user():
     # Load environment
     load_dotenv()
-    database_url = os.getenv(
-        "DATABASE_URL", "postgresql://admin:secret@localhost/research"
-    )
+    database_url = os.getenv("DATABASE_URL")
 
     # Create database connection
     engine = create_engine(database_url)
