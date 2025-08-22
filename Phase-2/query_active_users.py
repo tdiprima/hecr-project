@@ -35,11 +35,13 @@ def get_active_users():
         query = """
         SELECT DISTINCT u.firstname, u.lastname
         FROM users u
-        WHERE EXISTS (
+        WHERE (EXISTS (
             SELECT 1 FROM publications p WHERE p.user_id = u.id
         ) OR EXISTS (
             SELECT 1 FROM grants g WHERE g.user_id = u.id
-        )
+        ))
+        AND u.firstname != 'Demo'
+        AND u.lastname != 'zzFaculty'
         ORDER BY u.lastname, u.firstname;
         """
         
