@@ -25,8 +25,8 @@ def get_active_users():
         conn = psycopg2.connect(
             host="localhost",
             database="research", 
-            user="your_username",  # Update with your username
-            password="your_password"  # Update with your password
+            user="admin",
+            password="secret"
         )
         
         cursor = conn.cursor()
