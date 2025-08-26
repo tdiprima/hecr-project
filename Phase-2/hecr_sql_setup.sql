@@ -107,7 +107,8 @@ SELECT COUNT(*) as users_found FROM hecr;
 -- Optional: See which titles matched for verification
 SELECT 
     h.id,
-    h.name,
+    h.firstname,
+    h.lastname,
     COUNT(DISTINCT p.id) as matching_publications,
     COUNT(DISTINCT g.id) as matching_grants
 FROM hecr h
@@ -116,5 +117,5 @@ LEFT JOIN grants g ON h.id = g.user_id
 WHERE 
     LOWER(p.title) LIKE ANY(ARRAY['%health equity%', '%climate%', '%disparit%', '%pollution%'])
     OR LOWER(g.title) LIKE ANY(ARRAY['%health equity%', '%climate%', '%disparit%', '%pollution%'])
-GROUP BY h.id, h.name
+GROUP BY h.id, h.firstname, h.lastname
 ORDER BY matching_publications + matching_grants DESC;

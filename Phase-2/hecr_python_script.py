@@ -237,17 +237,17 @@ class HECRUserIdentifier:
             )
             by_method = self.cursor.fetchall()
 
-            # Sample of users with most matches
+            # Sample of users with most matches - Fixed query
             self.cursor.execute(
                 """
-                SELECT h.id, h.name, 
+                SELECT h.id, h.firstname, h.lastname, 
                        COUNT(DISTINCT p.id) as publication_matches,
                        COUNT(DISTINCT g.id) as grant_matches
                 FROM hecr h
                 LEFT JOIN publications p ON h.id = p.user_id
                 LEFT JOIN grants g ON h.id = g.user_id
-                GROUP BY h.id, h.name
-                ORDER BY publication_matches + grant_matches DESC
+                GROUP BY h.id, h.firstname, h.lastname
+                ORDER BY COUNT(DISTINCT p.id) + COUNT(DISTINCT g.id) DESC
                 LIMIT 10
             """
             )
@@ -358,7 +358,7 @@ def main():
         logger.info("\nTop 10 users by publication/grant matches:")
         for user in summary["top_users"]:
             logger.info(
-                f"  - {user['name']} (ID: {user['id']}): "
+                f"  - {user['firstname']} {user['lastname']} (ID: {user['id']}): "
                 f"{user['publication_matches']} publications, "
                 f"{user['grant_matches']} grants"
             )
