@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -118,7 +118,7 @@ class HECRUserIdentifier:
         keyword_sets: Dict[str, List[str]],
         search_publications: bool = True,
         search_grants: bool = True,
-    ) -> Set[int]:
+    ) -> Tuple[Set[int], Dict[int, Set[str]]]:
         """
         Find users based on keyword matches in publications and/or grants.
 
@@ -128,53 +128,67 @@ class HECRUserIdentifier:
             search_grants: Whether to search in grants table
 
         Returns:
-            Set of user IDs that match any keywords
+            Tuple of (matched_user_ids, user_keywords_map) where user_keywords_map
+            maps user_id to set of keywords that matched for that user
         """
         matched_users = set()
+        user_keywords_map = {}
 
         for category, keywords in keyword_sets.items():
             logger.info(f"Searching for {category} keywords...")
 
-            # Convert keywords to PostgreSQL LIKE patterns
-            patterns = [f"%{kw.lower()}%" for kw in keywords]
+            for keyword in keywords:
+                pattern = f"%{keyword.lower()}%"
+                
+                if search_publications:
+                    query = """
+                        SELECT DISTINCT p.user_id, p.title
+                        FROM publications p
+                        WHERE LOWER(p.title) LIKE %s
+                    """
+                    self.cursor.execute(query, (pattern,))
+                    pub_results = self.cursor.fetchall()
+                    
+                    for result in pub_results:
+                        user_id = result["user_id"]
+                        matched_users.add(user_id)
+                        if user_id not in user_keywords_map:
+                            user_keywords_map[user_id] = set()
+                        user_keywords_map[user_id].add(keyword)
 
-            if search_publications:
-                query = """
-                    SELECT DISTINCT p.user_id
-                    FROM publications p
-                    WHERE LOWER(p.title) LIKE ANY(%s)
-                """
-                self.cursor.execute(query, (patterns,))
-                pub_users = {row["user_id"] for row in self.cursor.fetchall()}
-                matched_users.update(pub_users)
-                logger.info(
-                    f"Found {len(pub_users)} users from publications for {category}"
-                )
+                if search_grants:
+                    query = """
+                        SELECT DISTINCT g.user_id, g.title
+                        FROM grants g
+                        WHERE LOWER(g.title) LIKE %s
+                    """
+                    self.cursor.execute(query, (pattern,))
+                    grant_results = self.cursor.fetchall()
+                    
+                    for result in grant_results:
+                        user_id = result["user_id"]
+                        matched_users.add(user_id)
+                        if user_id not in user_keywords_map:
+                            user_keywords_map[user_id] = set()
+                        user_keywords_map[user_id].add(keyword)
 
-            if search_grants:
-                query = """
-                    SELECT DISTINCT g.user_id
-                    FROM grants g
-                    WHERE LOWER(g.title) LIKE ANY(%s)
-                """
-                self.cursor.execute(query, (patterns,))
-                grant_users = {row["user_id"] for row in self.cursor.fetchall()}
-                matched_users.update(grant_users)
-                logger.info(
-                    f"Found {len(grant_users)} users from grants for {category}"
-                )
+            logger.info(f"Found users for {category}: {len([uid for uid in user_keywords_map if any(kw in keywords for kw in user_keywords_map[uid])])}")
 
         logger.info(f"Total unique users found: {len(matched_users)}")
-        return matched_users
+        return matched_users, user_keywords_map
 
     def populate_hecr_table(
-        self, user_ids: Set[int], identified_via: str = "keyword_search"
+        self, 
+        user_ids: Set[int], 
+        user_keywords_map: Dict[int, Set[str]],
+        identified_via: str = "keyword_search"
     ):
         """
         Populate HECR table with identified users, avoiding duplicates.
 
         Args:
             user_ids: Set of user IDs to add to HECR table
+            user_keywords_map: Dictionary mapping user_id to set of matched keywords
             identified_via: String to track how users were identified
         """
         if not user_ids:
@@ -193,22 +207,53 @@ class HECRUserIdentifier:
             )
             user_columns = [row["column_name"] for row in self.cursor.fetchall()]
 
-            # Insert users, avoiding duplicates
-            insert_query = f"""
-                INSERT INTO hecr ({', '.join(user_columns)}, identified_via, date_added)
-                SELECT {', '.join(user_columns)}, %s, %s
-                FROM users
-                WHERE id = ANY(%s)
-                ON CONFLICT (id) DO NOTHING
-            """
-
-            self.cursor.execute(
-                insert_query, (identified_via, datetime.now(), list(user_ids))
-            )
-            inserted = self.cursor.rowcount
+            # Check if user already exists and handle accordingly
+            inserted_count = 0
+            updated_count = 0
+            
+            for user_id in user_ids:
+                # Get the keywords that matched for this user
+                keywords_matched = list(user_keywords_map.get(user_id, set()))
+                
+                # Check if user already exists in HECR table
+                self.cursor.execute("SELECT id, keywords_matched, identified_via FROM hecr WHERE id = %s", (user_id,))
+                existing_user = self.cursor.fetchone()
+                
+                if existing_user:
+                    # Update existing user - merge keywords and identification methods
+                    existing_keywords = existing_user['keywords_matched'] or []
+                    merged_keywords = list(set(existing_keywords + keywords_matched))
+                    
+                    existing_via = existing_user['identified_via'] or ""
+                    if identified_via not in existing_via:
+                        new_via = f"{existing_via}, {identified_via}" if existing_via else identified_via
+                    else:
+                        new_via = existing_via
+                    
+                    update_query = """
+                        UPDATE hecr 
+                        SET keywords_matched = %s, identified_via = %s
+                        WHERE id = %s
+                    """
+                    self.cursor.execute(update_query, (merged_keywords, new_via, user_id))
+                    updated_count += 1
+                    
+                else:
+                    # Insert new user
+                    insert_query = f"""
+                        INSERT INTO hecr ({', '.join(user_columns)}, identified_via, keywords_matched, date_added)
+                        SELECT {', '.join(user_columns)}, %s, %s, %s
+                        FROM users
+                        WHERE id = %s
+                    """
+                    self.cursor.execute(
+                        insert_query, 
+                        (identified_via, keywords_matched, datetime.now(), user_id)
+                    )
+                    inserted_count += 1
 
             self.conn.commit()
-            logger.info(f"Added {inserted} new users to HECR table")
+            logger.info(f"Processed {len(user_ids)} users: {inserted_count} new, {updated_count} updated")
 
             # Get total count
             self.cursor.execute("SELECT COUNT(*) as total FROM hecr")
@@ -237,26 +282,44 @@ class HECRUserIdentifier:
             )
             by_method = self.cursor.fetchall()
 
-            # Sample of users with most matches - Fixed query
+            # Sample of users with their matched keywords
             self.cursor.execute(
                 """
-                SELECT h.id, h.firstname, h.lastname, 
+                SELECT h.id, h.firstname, h.lastname, h.keywords_matched,
                        COUNT(DISTINCT p.id) as publication_matches,
                        COUNT(DISTINCT g.id) as grant_matches
                 FROM hecr h
                 LEFT JOIN publications p ON h.id = p.user_id
                 LEFT JOIN grants g ON h.id = g.user_id
-                GROUP BY h.id, h.firstname, h.lastname
-                ORDER BY COUNT(DISTINCT p.id) + COUNT(DISTINCT g.id) DESC
+                GROUP BY h.id, h.firstname, h.lastname, h.keywords_matched
+                ORDER BY array_length(h.keywords_matched, 1) DESC NULLS LAST,
+                         COUNT(DISTINCT p.id) + COUNT(DISTINCT g.id) DESC
                 LIMIT 10
             """
             )
             top_users = self.cursor.fetchall()
 
+            # Most common keywords
+            self.cursor.execute(
+                """
+                SELECT keyword, COUNT(*) as user_count
+                FROM (
+                    SELECT unnest(keywords_matched) as keyword
+                    FROM hecr
+                    WHERE keywords_matched IS NOT NULL
+                ) subq
+                GROUP BY keyword
+                ORDER BY user_count DESC
+                LIMIT 15
+            """
+            )
+            top_keywords = self.cursor.fetchall()
+
             return {
                 "total_users": total,
                 "by_identification_method": by_method,
                 "top_users": top_users,
+                "most_common_keywords": top_keywords,
             }
 
         except Exception as e:
@@ -323,14 +386,14 @@ def main():
         # First run: Health Equity keywords
         logger.info("=== FIRST RUN: Health Equity Keywords ===")
         keyword_sets_run1 = {"Health Equity": health_equity_keywords}
-        users_run1 = identifier.find_users_by_keywords(keyword_sets_run1)
-        identifier.populate_hecr_table(users_run1, identified_via="health_equity_scan")
+        users_run1, keywords_map_run1 = identifier.find_users_by_keywords(keyword_sets_run1)
+        identifier.populate_hecr_table(users_run1, keywords_map_run1, identified_via="health_equity_scan")
 
         # Second run: Climate Health keywords
         logger.info("=== SECOND RUN: Climate Health Keywords ===")
         keyword_sets_run2 = {"Climate Health": climate_health_keywords}
-        users_run2 = identifier.find_users_by_keywords(keyword_sets_run2)
-        identifier.populate_hecr_table(users_run2, identified_via="climate_health_scan")
+        users_run2, keywords_map_run2 = identifier.find_users_by_keywords(keyword_sets_run2)
+        identifier.populate_hecr_table(users_run2, keywords_map_run2, identified_via="climate_health_scan")
 
         # Optional: Combined run with refined keywords
         logger.info("=== THIRD RUN: Combined/Refined Keywords ===")
@@ -344,8 +407,8 @@ def main():
                 "pollution disparit",
             ]
         }
-        users_run3 = identifier.find_users_by_keywords(refined_keywords)
-        identifier.populate_hecr_table(users_run3, identified_via="intersection_scan")
+        users_run3, keywords_map_run3 = identifier.find_users_by_keywords(refined_keywords)
+        identifier.populate_hecr_table(users_run3, keywords_map_run3, identified_via="intersection_scan")
 
         # Get and display summary
         summary = identifier.get_hecr_summary()
@@ -355,10 +418,18 @@ def main():
         for method in summary["by_identification_method"]:
             logger.info(f"  - {method['identified_via']}: {method['count']} users")
 
-        logger.info("\nTop 10 users by publication/grant matches:")
+        logger.info("\nMost common keywords:")
+        for kw in summary["most_common_keywords"]:
+            logger.info(f"  - '{kw['keyword']}': {kw['user_count']} users")
+
+        logger.info("\nTop 10 users by keyword matches:")
         for user in summary["top_users"]:
+            keywords_count = len(user['keywords_matched']) if user['keywords_matched'] else 0
+            keywords_preview = (', '.join(user['keywords_matched'][:3]) + 
+                              (f" (+{keywords_count-3} more)" if keywords_count > 3 else "")) if user['keywords_matched'] else "None"
             logger.info(
                 f"  - {user['firstname']} {user['lastname']} (ID: {user['id']}): "
+                f"{keywords_count} keywords matched [{keywords_preview}], "
                 f"{user['publication_matches']} publications, "
                 f"{user['grant_matches']} grants"
             )
