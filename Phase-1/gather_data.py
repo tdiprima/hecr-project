@@ -19,11 +19,10 @@ from typing import Dict, List, Optional
 import requests
 from dotenv import load_dotenv
 from halo import Halo
+from models import Grant, Publication, User
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-
-from models import Grant, Publication, User
 
 
 class InterfolioAPI:
@@ -133,7 +132,7 @@ class DataCollector:
         fields = activity_data.get("fields", {})
         activity_type = fields.get("Type", "")
 
-        if activity_type not in ["Journal Article", "Book"]:
+        if activity_type not in ("Journal Article", "Book"):
             return None
 
         status_info = (

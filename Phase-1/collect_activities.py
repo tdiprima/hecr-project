@@ -9,20 +9,19 @@ import datetime
 import hashlib
 import hmac
 import os
+import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from typing import Dict, List, Optional
-import time
-import traceback
 
 import requests
 from dotenv import load_dotenv
 from halo import Halo
+from models import Grant, Publication, User
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-
-from models import Grant, Publication, User
 
 
 class InterfolioAPI:
@@ -68,12 +67,12 @@ class InterfolioAPI:
         for attempt in range(max_retries):
             try:
                 response = requests.get(url, headers=headers, timeout=30)
-                
+
                 if response.status_code == 429:  # Rate limited
                     wait_time = (attempt + 1) * 2
                     time.sleep(wait_time)
                     continue
-                    
+
                 response.raise_for_status()
 
                 if response.text.strip().startswith("<"):
@@ -86,38 +85,42 @@ class InterfolioAPI:
                     time.sleep(2)
                     continue
                 return None
-            except Exception as e:
+            except Exception:
                 if attempt < max_retries - 1:
                     time.sleep(1)
                     continue
                 return None
-        
+
         return None
 
     def get_user_publications(self, user_id: str) -> List[Dict]:
         """Get user publications from /activities/-21 endpoint"""
-        response = self._make_request("/activities/-21", f"?data=detailed&userlist={user_id}")
-        
+        response = self._make_request(
+            "/activities/-21", f"?data=detailed&userlist={user_id}"
+        )
+
         if not response or not isinstance(response, dict):
             return []
-        
+
         # Publications are in the '-21' key
-        if '-21' in response and isinstance(response['-21'], list):
-            return response['-21']
-        
+        if "-21" in response and isinstance(response["-21"], list):
+            return response["-21"]
+
         return []
 
     def get_user_grants(self, user_id: str) -> List[Dict]:
         """Get user grants from /activities/-11 endpoint"""
-        response = self._make_request("/activities/-11", f"?data=detailed&userlist={user_id}")
-        
+        response = self._make_request(
+            "/activities/-11", f"?data=detailed&userlist={user_id}"
+        )
+
         if not response or not isinstance(response, dict):
             return []
-        
+
         # Grants are in the '-11' key
-        if '-11' in response and isinstance(response['-11'], list):
-            return response['-11']
-        
+        if "-11" in response and isinstance(response["-11"], list):
+            return response["-11"]
+
         return []
 
 
@@ -147,20 +150,25 @@ class ActivityCollector:
             return str(value)[:max_length]
         return value
 
-    def _create_publication(self, activity_data: Dict, user_id: str) -> Optional[Publication]:
+    def _create_publication(
+        self, activity_data: Dict, user_id: str
+    ) -> Optional[Publication]:
         """Create a Publication object from activity data"""
         try:
             fields = activity_data.get("fields", {})
             activity_type = fields.get("Type", "")
 
             # Only process Journal Articles and Books
-            if activity_type not in ["Journal Article", "Book"]:
+            if activity_type not in ("Journal Article", "Book"):
                 return None
 
             # Extract status info - handle both list and dict formats
             status_info = {}
             if activity_data.get("status"):
-                if isinstance(activity_data["status"], list) and len(activity_data["status"]) > 0:
+                if (
+                    isinstance(activity_data["status"], list)
+                    and len(activity_data["status"]) > 0
+                ):
                     status_info = activity_data["status"][0]
                 elif isinstance(activity_data["status"], dict):
                     status_info = activity_data["status"]
@@ -182,20 +190,41 @@ class ActivityCollector:
                 year=self._truncate_field(year, 4),
                 month_season=self._truncate_field(fields.get("Month / Season"), 50),
                 publisher=self._truncate_field(fields.get("Publisher"), 255),
-                publisher_city_state=self._truncate_field(fields.get("Publisher City and State"), 255),
-                publisher_country=self._truncate_field(fields.get("Publisher Country"), 100),
+                publisher_city_state=self._truncate_field(
+                    fields.get("Publisher City and State"), 255
+                ),
+                publisher_country=self._truncate_field(
+                    fields.get("Publisher Country"), 100
+                ),
                 volume=self._truncate_field(fields.get("Volume"), 50),
-                issue_number=self._truncate_field(fields.get("Issue Number / Edition"), 50),
-                page_numbers=self._truncate_field(fields.get("Page Number(s) or Number of Pages"), 50),
+                issue_number=self._truncate_field(
+                    fields.get("Issue Number / Edition"), 50
+                ),
+                page_numbers=self._truncate_field(
+                    fields.get("Page Number(s) or Number of Pages"), 50
+                ),
                 isbn=self._truncate_field(fields.get("ISBN"), 20),
                 issn=self._truncate_field(fields.get("ISSN"), 20),
                 doi=self._truncate_field(fields.get("DOI"), 255),
                 url=self._truncate_field(fields.get("URL"), 500),
-                description=fields.get("Description"),  # TEXT field, no truncation needed
+                description=fields.get(
+                    "Description"
+                ),  # TEXT field, no truncation needed
                 origin=self._truncate_field(fields.get("Origin"), 50),
-                status=self._truncate_field(status_info.get("status") if status_info else None, 50),
-                term=self._truncate_field(status_info.get("term") if status_info else None, 50),
-                status_year=self._truncate_field(str(status_info.get("year")) if status_info and status_info.get("year") else None, 4),
+                status=self._truncate_field(
+                    status_info.get("status") if status_info else None, 50
+                ),
+                term=self._truncate_field(
+                    status_info.get("term") if status_info else None, 50
+                ),
+                status_year=self._truncate_field(
+                    (
+                        str(status_info.get("year"))
+                        if status_info and status_info.get("year")
+                        else None
+                    ),
+                    4,
+                ),
             )
         except Exception as e:
             if self.verbose:
@@ -208,7 +237,7 @@ class ActivityCollector:
         """Create a Grant object from activity data"""
         try:
             fields = activity_data.get("fields", {})
-            
+
             # All items from -11 endpoint should be grants
             # but double-check for Grant ID
             if not fields.get("Grant ID / Contract ID"):
@@ -217,11 +246,14 @@ class ActivityCollector:
             # Extract status info
             status_info = {}
             if activity_data.get("status"):
-                if isinstance(activity_data["status"], list) and len(activity_data["status"]) > 0:
+                if (
+                    isinstance(activity_data["status"], list)
+                    and len(activity_data["status"]) > 0
+                ):
                     status_info = activity_data["status"][0]
                 elif isinstance(activity_data["status"], dict):
                     status_info = activity_data["status"]
-            
+
             # Extract funding info
             funding_info = {}
             if activity_data.get("funding"):
@@ -238,9 +270,9 @@ class ActivityCollector:
 
             # Get total funding from various possible fields
             total_funding = (
-                funding_info.get("fundedamount") or 
-                fields.get("Total Funding") or 
-                fields.get("Amount")
+                funding_info.get("fundedamount")
+                or fields.get("Total Funding")
+                or fields.get("Amount")
             )
 
             # Truncate fields to match database constraints
@@ -249,24 +281,50 @@ class ActivityCollector:
                 activityid=activity_data.get("activityid"),
                 title=self._truncate_field(fields.get("Title"), 255),
                 sponsor=self._truncate_field(fields.get("Sponsor"), 255),
-                grant_id=self._truncate_field(fields.get("Grant ID / Contract ID"), 100),
+                grant_id=self._truncate_field(
+                    fields.get("Grant ID / Contract ID"), 100
+                ),
                 award_date=fields.get("Award Date"),
                 start_date=fields.get("Start Date"),
                 end_date=fields.get("End Date"),
                 period_length=fields.get("Period Length"),
                 period_unit=self._truncate_field(fields.get("Period Unit"), 50),
                 indirect_funding=fields.get("Indirect Funding"),
-                indirect_cost_rate=self._truncate_field(fields.get("Indirect Cost Rate"), 50),
-                total_funding=self._truncate_field(str(total_funding) if total_funding else None, 50),
-                total_direct_funding=self._truncate_field(str(fields.get("Total Direct Funding")) if fields.get("Total Direct Funding") else None, 50),
+                indirect_cost_rate=self._truncate_field(
+                    fields.get("Indirect Cost Rate"), 50
+                ),
+                total_funding=self._truncate_field(
+                    str(total_funding) if total_funding else None, 50
+                ),
+                total_direct_funding=self._truncate_field(
+                    (
+                        str(fields.get("Total Direct Funding"))
+                        if fields.get("Total Direct Funding")
+                        else None
+                    ),
+                    50,
+                ),
                 currency_type=self._truncate_field(fields.get("Currency Type"), 10),
-                description=fields.get("Description"),  # TEXT field, no truncation needed
+                description=fields.get(
+                    "Description"
+                ),  # TEXT field, no truncation needed
                 abstract=fields.get("Abstract"),  # TEXT field, no truncation needed
                 number_of_periods=fields.get("Number of Periods"),
                 url=self._truncate_field(fields.get("URL"), 500),
-                status=self._truncate_field(status_info.get("status") if status_info else None, 50),
-                term=self._truncate_field(status_info.get("term") if status_info else None, 50),
-                status_year=self._truncate_field(str(status_info.get("year")) if status_info and status_info.get("year") else None, 4),
+                status=self._truncate_field(
+                    status_info.get("status") if status_info else None, 50
+                ),
+                term=self._truncate_field(
+                    status_info.get("term") if status_info else None, 50
+                ),
+                status_year=self._truncate_field(
+                    (
+                        str(status_info.get("year"))
+                        if status_info and status_info.get("year")
+                        else None
+                    ),
+                    4,
+                ),
             )
         except Exception as e:
             if self.verbose:
@@ -282,10 +340,10 @@ class ActivityCollector:
         try:
             # Get publications from API
             publications = self.api.get_user_publications(user_id)
-            
+
             # Get grants from API
             grants = self.api.get_user_grants(user_id)
-            
+
             if not publications and not grants:
                 with self.stats_lock:
                     self.stats["users_processed"] += 1
@@ -296,7 +354,7 @@ class ActivityCollector:
             if publications:
                 with self.stats_lock:
                     self.stats["users_with_publications"] += 1
-            
+
             if grants:
                 with self.stats_lock:
                     self.stats["users_with_grants"] += 1
@@ -311,16 +369,22 @@ class ActivityCollector:
                     publication = self._create_publication(activity, user_id)
                     if publication and publication.activityid:
                         # Check if already exists
-                        existing = session.query(Publication).filter(
-                            Publication.activityid == publication.activityid,
-                            Publication.user_id == user_id
-                        ).first()
-                        
+                        existing = (
+                            session.query(Publication)
+                            .filter(
+                                Publication.activityid == publication.activityid,
+                                Publication.user_id == user_id,
+                            )
+                            .first()
+                        )
+
                         if not existing:
                             session.add(publication)
                             publications_added += 1
                             if self.verbose:
-                                print(f"  Added publication: {publication.title[:50] if publication.title else 'Untitled'}")
+                                print(
+                                    f"  Added publication: {publication.title[:50] if publication.title else 'Untitled'}"
+                                )
                         else:
                             duplicates += 1
 
@@ -339,16 +403,22 @@ class ActivityCollector:
                     grant = self._create_grant(activity, user_id)
                     if grant and grant.activityid:
                         # Check if already exists
-                        existing = session.query(Grant).filter(
-                            Grant.activityid == grant.activityid,
-                            Grant.user_id == user_id
-                        ).first()
-                        
+                        existing = (
+                            session.query(Grant)
+                            .filter(
+                                Grant.activityid == grant.activityid,
+                                Grant.user_id == user_id,
+                            )
+                            .first()
+                        )
+
                         if not existing:
                             session.add(grant)
                             grants_added += 1
                             if self.verbose:
-                                print(f"  Added grant: {grant.title[:50] if grant.title else 'Untitled'}")
+                                print(
+                                    f"  Added grant: {grant.title[:50] if grant.title else 'Untitled'}"
+                                )
                         else:
                             duplicates += 1
 
@@ -379,7 +449,9 @@ class ActivityCollector:
                 self.stats["duplicates_skipped"] += duplicates
 
             if publications_added > 0 or grants_added > 0:
-                print(f"User {user_id}: +{publications_added} pubs, +{grants_added} grants")
+                print(
+                    f"User {user_id}: +{publications_added} pubs, +{grants_added} grants"
+                )
 
         except Exception as e:
             session.rollback()
@@ -396,9 +468,9 @@ class ActivityCollector:
         """Get all non-staff user IDs from database"""
         session = self.session_factory()
         try:
-            users = session.query(User.id).filter(
-                User.employmentstatus != 'Staff'
-            ).all()
+            users = (
+                session.query(User.id).filter(User.employmentstatus != "Staff").all()
+            )
             return [user.id for user in users]
         finally:
             session.close()
@@ -409,7 +481,7 @@ class ActivityCollector:
         spinner.start()
 
         user_ids = self.get_user_ids()
-        
+
         if not user_ids:
             spinner.fail("No users found in database")
             return
@@ -423,15 +495,17 @@ class ActivityCollector:
 
         spinner.succeed(f"Found {len(user_ids)} users to process")
         print(f"Using {max_workers} workers")
-        print(f"Fetching from:")
-        print(f"  Publications: /activities/-21")
-        print(f"  Grants: /activities/-11")
-        
+        print("Fetching from:")
+        print("  Publications: /activities/-21")
+        print("  Grants: /activities/-11")
+
         start_time = time.time()
 
         # Process users in parallel
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(self.process_user, user_id) for user_id in user_ids]
+            futures = [
+                executor.submit(self.process_user, user_id) for user_id in user_ids
+            ]
 
             for i, future in enumerate(as_completed(futures), 1):
                 try:
@@ -440,21 +514,31 @@ class ActivityCollector:
                         with self.stats_lock:
                             elapsed = time.time() - start_time
                             rate = i / elapsed if elapsed > 0 else 0
-                            print(f"\nProgress: {i}/{len(user_ids)} users ({rate:.1f} users/sec)")
-                            print(f"  Users with publications: {self.stats['users_with_publications']}")
-                            print(f"  Users with grants: {self.stats['users_with_grants']}")
-                            print(f"  Publications added: {self.stats['publications_added']}")
+                            print(
+                                f"\nProgress: {i}/{len(user_ids)} users ({rate:.1f} users/sec)"
+                            )
+                            print(
+                                f"  Users with publications: {self.stats['users_with_publications']}"
+                            )
+                            print(
+                                f"  Users with grants: {self.stats['users_with_grants']}"
+                            )
+                            print(
+                                f"  Publications added: {self.stats['publications_added']}"
+                            )
                             print(f"  Grants added: {self.stats['grants_added']}")
-                            print(f"  Errors: {self.stats['db_errors'] + self.stats['parse_errors']}")
+                            print(
+                                f"  Errors: {self.stats['db_errors'] + self.stats['parse_errors']}"
+                            )
                 except Exception as e:
                     print(f"Task failed: {e}")
 
         elapsed_time = time.time() - start_time
-        
-        print("\n" + "="*60)
+
+        print("\n" + "=" * 60)
         print("✅ Data collection completed!")
         print(f"Time taken: {elapsed_time:.1f} seconds")
-        print(f"Final statistics:")
+        print("Final statistics:")
         print(f"  Users processed: {self.stats['users_processed']}")
         print(f"  Users with publications: {self.stats['users_with_publications']}")
         print(f"  Users with grants: {self.stats['users_with_grants']}")
@@ -469,17 +553,28 @@ class ActivityCollector:
 
 def main():
     import argparse
-    
-    parser = argparse.ArgumentParser(description='Collect publications and grants for users')
-    parser.add_argument('--workers', type=int, default=8, 
-                        help='Number of concurrent workers (default: 8)')
-    parser.add_argument('--batch', type=int, default=None,
-                        help='Process only first N users (for testing)')
-    parser.add_argument('--verbose', action='store_true',
-                        help='Show detailed debug output')
-    
+
+    parser = argparse.ArgumentParser(
+        description="Collect publications and grants for users"
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Number of concurrent workers (default: 8)",
+    )
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=None,
+        help="Process only first N users (for testing)",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed debug output"
+    )
+
     args = parser.parse_args()
-    
+
     collector = ActivityCollector(verbose=args.verbose)
     collector.collect_activities(max_workers=args.workers, batch_size=args.batch)
 

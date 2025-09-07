@@ -139,7 +139,7 @@ class HECRUserIdentifier:
 
             for keyword in keywords:
                 pattern = f"%{keyword.lower()}%"
-                
+
                 if search_publications:
                     query = """
                         SELECT DISTINCT p.user_id, p.title
@@ -148,7 +148,7 @@ class HECRUserIdentifier:
                     """
                     self.cursor.execute(query, (pattern,))
                     pub_results = self.cursor.fetchall()
-                    
+
                     for result in pub_results:
                         user_id = result["user_id"]
                         matched_users.add(user_id)
@@ -164,7 +164,7 @@ class HECRUserIdentifier:
                     """
                     self.cursor.execute(query, (pattern,))
                     grant_results = self.cursor.fetchall()
-                    
+
                     for result in grant_results:
                         user_id = result["user_id"]
                         matched_users.add(user_id)
@@ -172,16 +172,18 @@ class HECRUserIdentifier:
                             user_keywords_map[user_id] = set()
                         user_keywords_map[user_id].add(keyword)
 
-            logger.info(f"Found users for {category}: {len([uid for uid in user_keywords_map if any(kw in keywords for kw in user_keywords_map[uid])])}")
+            logger.info(
+                f"Found users for {category}: {len([uid for uid in user_keywords_map if any(kw in keywords for kw in user_keywords_map[uid])])}"
+            )
 
         logger.info(f"Total unique users found: {len(matched_users)}")
         return matched_users, user_keywords_map
 
     def populate_hecr_table(
-        self, 
-        user_ids: Set[int], 
+        self,
+        user_ids: Set[int],
         user_keywords_map: Dict[int, Set[str]],
-        identified_via: str = "keyword_search"
+        identified_via: str = "keyword_search",
     ):
         """
         Populate HECR table with identified users, avoiding duplicates.
@@ -210,34 +212,43 @@ class HECRUserIdentifier:
             # Check if user already exists and handle accordingly
             inserted_count = 0
             updated_count = 0
-            
+
             for user_id in user_ids:
                 # Get the keywords that matched for this user
                 keywords_matched = list(user_keywords_map.get(user_id, set()))
-                
+
                 # Check if user already exists in HECR table
-                self.cursor.execute("SELECT id, keywords_matched, identified_via FROM hecr WHERE id = %s", (user_id,))
+                self.cursor.execute(
+                    "SELECT id, keywords_matched, identified_via FROM hecr WHERE id = %s",
+                    (user_id,),
+                )
                 existing_user = self.cursor.fetchone()
-                
+
                 if existing_user:
                     # Update existing user - merge keywords and identification methods
-                    existing_keywords = existing_user['keywords_matched'] or []
+                    existing_keywords = existing_user["keywords_matched"] or []
                     merged_keywords = list(set(existing_keywords + keywords_matched))
-                    
-                    existing_via = existing_user['identified_via'] or ""
+
+                    existing_via = existing_user["identified_via"] or ""
                     if identified_via not in existing_via:
-                        new_via = f"{existing_via}, {identified_via}" if existing_via else identified_via
+                        new_via = (
+                            f"{existing_via}, {identified_via}"
+                            if existing_via
+                            else identified_via
+                        )
                     else:
                         new_via = existing_via
-                    
+
                     update_query = """
                         UPDATE hecr 
                         SET keywords_matched = %s, identified_via = %s
                         WHERE id = %s
                     """
-                    self.cursor.execute(update_query, (merged_keywords, new_via, user_id))
+                    self.cursor.execute(
+                        update_query, (merged_keywords, new_via, user_id)
+                    )
                     updated_count += 1
-                    
+
                 else:
                     # Insert new user
                     insert_query = f"""
@@ -247,13 +258,15 @@ class HECRUserIdentifier:
                         WHERE id = %s
                     """
                     self.cursor.execute(
-                        insert_query, 
-                        (identified_via, keywords_matched, datetime.now(), user_id)
+                        insert_query,
+                        (identified_via, keywords_matched, datetime.now(), user_id),
                     )
                     inserted_count += 1
 
             self.conn.commit()
-            logger.info(f"Processed {len(user_ids)} users: {inserted_count} new, {updated_count} updated")
+            logger.info(
+                f"Processed {len(user_ids)} users: {inserted_count} new, {updated_count} updated"
+            )
 
             # Get total count
             self.cursor.execute("SELECT COUNT(*) as total FROM hecr")
@@ -386,14 +399,22 @@ def main():
         # First run: Health Equity keywords
         logger.info("=== FIRST RUN: Health Equity Keywords ===")
         keyword_sets_run1 = {"Health Equity": health_equity_keywords}
-        users_run1, keywords_map_run1 = identifier.find_users_by_keywords(keyword_sets_run1)
-        identifier.populate_hecr_table(users_run1, keywords_map_run1, identified_via="health_equity_scan")
+        users_run1, keywords_map_run1 = identifier.find_users_by_keywords(
+            keyword_sets_run1
+        )
+        identifier.populate_hecr_table(
+            users_run1, keywords_map_run1, identified_via="health_equity_scan"
+        )
 
         # Second run: Climate Health keywords
         logger.info("=== SECOND RUN: Climate Health Keywords ===")
         keyword_sets_run2 = {"Climate Health": climate_health_keywords}
-        users_run2, keywords_map_run2 = identifier.find_users_by_keywords(keyword_sets_run2)
-        identifier.populate_hecr_table(users_run2, keywords_map_run2, identified_via="climate_health_scan")
+        users_run2, keywords_map_run2 = identifier.find_users_by_keywords(
+            keyword_sets_run2
+        )
+        identifier.populate_hecr_table(
+            users_run2, keywords_map_run2, identified_via="climate_health_scan"
+        )
 
         # Optional: Combined run with refined keywords
         logger.info("=== THIRD RUN: Combined/Refined Keywords ===")
@@ -407,8 +428,12 @@ def main():
                 "pollution disparit",
             ]
         }
-        users_run3, keywords_map_run3 = identifier.find_users_by_keywords(refined_keywords)
-        identifier.populate_hecr_table(users_run3, keywords_map_run3, identified_via="intersection_scan")
+        users_run3, keywords_map_run3 = identifier.find_users_by_keywords(
+            refined_keywords
+        )
+        identifier.populate_hecr_table(
+            users_run3, keywords_map_run3, identified_via="intersection_scan"
+        )
 
         # Get and display summary
         summary = identifier.get_hecr_summary()
@@ -424,9 +449,17 @@ def main():
 
         logger.info("\nTop 10 users by keyword matches:")
         for user in summary["top_users"]:
-            keywords_count = len(user['keywords_matched']) if user['keywords_matched'] else 0
-            keywords_preview = (', '.join(user['keywords_matched'][:3]) + 
-                              (f" (+{keywords_count-3} more)" if keywords_count > 3 else "")) if user['keywords_matched'] else "None"
+            keywords_count = (
+                len(user["keywords_matched"]) if user["keywords_matched"] else 0
+            )
+            keywords_preview = (
+                (
+                    ", ".join(user["keywords_matched"][:3])
+                    + (f" (+{keywords_count-3} more)" if keywords_count > 3 else "")
+                )
+                if user["keywords_matched"]
+                else "None"
+            )
             logger.info(
                 f"  - {user['firstname']} {user['lastname']} (ID: {user['id']}): "
                 f"{keywords_count} keywords matched [{keywords_preview}], "

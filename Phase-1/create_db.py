@@ -2,9 +2,8 @@
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
-
 from models import Base
+from sqlalchemy import create_engine
 
 
 def create_database_tables():

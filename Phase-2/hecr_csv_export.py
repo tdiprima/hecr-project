@@ -1,6 +1,10 @@
 import csv
-import logging
-from typing import Optional
+
+import psycopg2
+from loguru import logger
+from psycopg2.extras import RealDictCursor
+
+logger.add("automation.log", rotation="1 MB")
 
 
 def export_hecr_to_csv(
@@ -137,8 +141,6 @@ def export_hecr_to_csv(
 # Alternative: If you want a standalone function (not part of the class)
 def export_hecr_standalone(db_config: dict, output_file: str = "hecr_export.csv"):
     """Standalone function to export HECR data to CSV"""
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
 
     conn = None
     try:
