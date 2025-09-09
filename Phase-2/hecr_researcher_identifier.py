@@ -1,9 +1,13 @@
 import logging
+import os
 from datetime import datetime
 from typing import Dict, List, Set, Tuple
 
 import psycopg2
+from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -345,8 +349,8 @@ def main():
     db_config = {
         "host": "localhost",
         "database": "research",
-        "user": "your_username",
-        "password": "your_password",
+        "user": os.getenv("DB_USER"),
+        "password": os.getenv("DB_PASS"),
         "port": 5432,  # optional, defaults to 5432
     }
 

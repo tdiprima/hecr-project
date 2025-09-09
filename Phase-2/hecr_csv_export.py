@@ -1,8 +1,12 @@
 import csv
+import os
 
 import psycopg2
+from dotenv import load_dotenv
 from loguru import logger
 from psycopg2.extras import RealDictCursor
+
+load_dotenv()
 
 logger.add("automation.log", rotation="1 MB")
 
@@ -204,8 +208,8 @@ if __name__ == "__main__":
     db_config = {
         "host": "localhost",
         "database": "research",
-        "user": "your_username",
-        "password": "your_password",
+        "user": os.getenv("DB_USER"),
+        "password": os.getenv("DB_PASS"),
         "port": 5432,
     }
     # export_hecr_standalone(db_config, "hecr_export.csv")
