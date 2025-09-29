@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 """
-Script to collect publications and grants for all users from Interfolio API
+Improved script to sync publications and grants for all users from Interfolio API
+- Adds new records
+- Updates existing records  
+- Deletes stale records not in API
 Publications are in /activities/-21
 Grants are in /activities/-11
+
+# Full sync with default settings
+python collect_activities_improved.py
+
+# Test with first 100 users
+python collect_activities_improved.py --batch 100 --verbose
+
+# Use fewer workers if rate limited
+python collect_activities_improved.py --workers 8
 """
 import argparse
 import base64
@@ -19,12 +31,17 @@ from typing import Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
-from halo import Halo
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from models import Grant, Publication, User
+from activity_utils import (
+    ActivityTracker,
+    create_publication_from_api,
+    create_grant_from_api,
+    delete_stale_activities,
+)
 
 
 class InterfolioAPI:
@@ -135,210 +152,30 @@ class ActivityCollector:
         self.session_factory = sessionmaker(bind=self.engine)
         self.api = InterfolioAPI()
         self.verbose = verbose
+        self.tracker = ActivityTracker()
         self.stats_lock = Lock()
         self.stats = {
             "users_processed": 0,
             "users_with_publications": 0,
             "users_with_grants": 0,
             "publications_added": 0,
+            "publications_updated": 0,
+            "publications_deleted": 0,
             "grants_added": 0,
+            "grants_updated": 0,
+            "grants_deleted": 0,
             "duplicates_skipped": 0,
             "parse_errors": 0,
             "db_errors": 0,
         }
 
-    def _truncate_field(self, value: Optional[str], max_length: int) -> Optional[str]:
-        """Truncate a field to max_length if it's too long"""
-        if value and len(str(value)) > max_length:
-            return str(value)[:max_length]
-        return value
-
-    def _create_publication(
-        self, activity_data: Dict, user_id: str
-    ) -> Optional[Publication]:
-        """Create a Publication object from activity data"""
-        try:
-            fields = activity_data.get("fields", {})
-            activity_type = fields.get("Type", "")
-
-            # Only process Journal Articles and Books
-            if activity_type not in ("Journal Article", "Book"):
-                return None
-
-            # Extract status info - handle both list and dict formats
-            status_info = {}
-            if activity_data.get("status"):
-                if (
-                    isinstance(activity_data["status"], list)
-                    and len(activity_data["status"]) > 0
-                ):
-                    status_info = activity_data["status"][0]
-                elif isinstance(activity_data["status"], dict):
-                    status_info = activity_data["status"]
-
-            # Parse year - handle various formats
-            year = fields.get("Year")
-            if year:
-                year = str(year)[:4] if len(str(year)) >= 4 else str(year)
-
-            # Truncate fields to match database constraints
-            # Most varchar fields are 50 or 255 characters
-            return Publication(
-                user_id=user_id,
-                activityid=activity_data.get("activityid"),
-                type=self._truncate_field(activity_type, 50),
-                title=self._truncate_field(fields.get("Title"), 255),
-                journal=self._truncate_field(fields.get("Journal Title"), 255),
-                series_title=self._truncate_field(fields.get("Series Title"), 255),
-                year=self._truncate_field(year, 4),
-                month_season=self._truncate_field(fields.get("Month / Season"), 50),
-                publisher=self._truncate_field(fields.get("Publisher"), 255),
-                publisher_city_state=self._truncate_field(
-                    fields.get("Publisher City and State"), 255
-                ),
-                publisher_country=self._truncate_field(
-                    fields.get("Publisher Country"), 100
-                ),
-                volume=self._truncate_field(fields.get("Volume"), 50),
-                issue_number=self._truncate_field(
-                    fields.get("Issue Number / Edition"), 50
-                ),
-                page_numbers=self._truncate_field(
-                    fields.get("Page Number(s) or Number of Pages"), 50
-                ),
-                isbn=self._truncate_field(fields.get("ISBN"), 20),
-                issn=self._truncate_field(fields.get("ISSN"), 20),
-                doi=self._truncate_field(fields.get("DOI"), 255),
-                url=self._truncate_field(fields.get("URL"), 500),
-                description=fields.get(
-                    "Description"
-                ),
-                origin=self._truncate_field(fields.get("Origin"), 50),
-                status=self._truncate_field(
-                    status_info.get("status") if status_info else None, 50
-                ),
-                term=self._truncate_field(
-                    status_info.get("term") if status_info else None, 50
-                ),
-                status_year=self._truncate_field(
-                    (
-                        str(status_info.get("year"))
-                        if status_info and status_info.get("year")
-                        else None
-                    ),
-                    4,
-                ),
-            )
-        except Exception as e:
-            if self.verbose:
-                logging.error(f"Error creating publication: {e}")
-            with self.stats_lock:
-                self.stats["parse_errors"] += 1
-            return None
-
-    def _create_grant(self, activity_data: Dict, user_id: str) -> Optional[Grant]:
-        """Create a Grant object from activity data"""
-        try:
-            fields = activity_data.get("fields", {})
-
-            # All items from -11 endpoint should be grants
-            # but double-check for Grant ID
-            if not fields.get("Grant ID / Contract ID"):
-                return None
-
-            # Extract status info
-            status_info = {}
-            if activity_data.get("status"):
-                if (
-                    isinstance(activity_data["status"], list)
-                    and len(activity_data["status"]) > 0
-                ):
-                    status_info = activity_data["status"][0]
-                elif isinstance(activity_data["status"], dict):
-                    status_info = activity_data["status"]
-
-            # Extract funding info
-            funding_info = {}
-            if activity_data.get("funding"):
-                if isinstance(activity_data["funding"], dict):
-                    # The funding dict has the activityid as key
-                    activity_id = str(activity_data.get("activityid"))
-                    if activity_id in activity_data["funding"]:
-                        funding_info = activity_data["funding"][activity_id]
-                    else:
-                        # Get first funding entry
-                        funding_values = list(activity_data["funding"].values())
-                        if funding_values and isinstance(funding_values[0], dict):
-                            funding_info = funding_values[0]
-
-            # Get total funding from various possible fields
-            total_funding = (
-                funding_info.get("fundedamount")
-                or fields.get("Total Funding")
-                or fields.get("Amount")
-            )
-
-            # Truncate fields to match database constraints
-            return Grant(
-                user_id=user_id,
-                activityid=activity_data.get("activityid"),
-                title=self._truncate_field(fields.get("Title"), 255),
-                sponsor=self._truncate_field(fields.get("Sponsor"), 255),
-                grant_id=self._truncate_field(
-                    fields.get("Grant ID / Contract ID"), 100
-                ),
-                award_date=fields.get("Award Date"),
-                start_date=fields.get("Start Date"),
-                end_date=fields.get("End Date"),
-                period_length=fields.get("Period Length"),
-                period_unit=self._truncate_field(fields.get("Period Unit"), 50),
-                indirect_funding=fields.get("Indirect Funding"),
-                indirect_cost_rate=self._truncate_field(
-                    fields.get("Indirect Cost Rate"), 50
-                ),
-                total_funding=self._truncate_field(
-                    str(total_funding) if total_funding else None, 50
-                ),
-                total_direct_funding=self._truncate_field(
-                    (
-                        str(fields.get("Total Direct Funding"))
-                        if fields.get("Total Direct Funding")
-                        else None
-                    ),
-                    50,
-                ),
-                currency_type=self._truncate_field(fields.get("Currency Type"), 10),
-                description=fields.get("Description"),
-                abstract=fields.get("Abstract"),
-                number_of_periods=fields.get("Number of Periods"),
-                url=self._truncate_field(fields.get("URL"), 500),
-                status=self._truncate_field(
-                    status_info.get("status") if status_info else None, 50
-                ),
-                term=self._truncate_field(
-                    status_info.get("term") if status_info else None, 50
-                ),
-                status_year=self._truncate_field(
-                    (
-                        str(status_info.get("year"))
-                        if status_info and status_info.get("year")
-                        else None
-                    ),
-                    4,
-                ),
-            )
-        except Exception as e:
-            if self.verbose:
-                logging.error(f"Error creating grant: {e}")
-                traceback.logging.info_exc()
-            with self.stats_lock:
-                self.stats["parse_errors"] += 1
-            return None
-
     def process_user(self, user_id: str) -> None:
         """Process a single user's publications and grants"""
         session = self.session_factory()
         try:
+            # Track this user as seen
+            self.tracker.track_user(user_id)
+            
             # Get publications from API
             publications = self.api.get_user_publications(user_id)
 
@@ -361,21 +198,23 @@ class ActivityCollector:
                     self.stats["users_with_grants"] += 1
 
             publications_added = 0
+            publications_updated = 0
             grants_added = 0
+            grants_updated = 0
             duplicates = 0
 
             # Process publications
             for activity in publications:
                 try:
-                    publication = self._create_publication(activity, user_id)
+                    publication = create_publication_from_api(activity, user_id)
                     if publication and publication.activityid:
+                        # Track this publication as seen
+                        self.tracker.track_publication(publication.activityid)
+                        
                         # Check if already exists
                         existing = (
                             session.query(Publication)
-                            .filter(
-                                Publication.activityid == publication.activityid,
-                                Publication.user_id == user_id,
-                            )
+                            .filter_by(activityid=publication.activityid)
                             .first()
                         )
 
@@ -385,7 +224,11 @@ class ActivityCollector:
                             if self.verbose:
                                 logging.info(f"  Added publication: {publication.title[:50] if publication.title else 'Untitled'}")
                         else:
-                            duplicates += 1
+                            # Update existing record using merge
+                            session.merge(publication)
+                            publications_updated += 1
+                            if self.verbose:
+                                logging.info(f"  Updated publication: {publication.title[:50] if publication.title else 'Untitled'}")
 
                 except IntegrityError:
                     session.rollback()
@@ -393,21 +236,23 @@ class ActivityCollector:
                     continue
                 except Exception as e:
                     if self.verbose:
-                        logging.info(f"  Error processing publication: {e}")
+                        logging.error(f"  Error processing publication: {e}")
+                    with self.stats_lock:
+                        self.stats["parse_errors"] += 1
                     continue
 
             # Process grants
             for activity in grants:
                 try:
-                    grant = self._create_grant(activity, user_id)
+                    grant = create_grant_from_api(activity, user_id)
                     if grant and grant.activityid:
+                        # Track this grant as seen
+                        self.tracker.track_grant(grant.activityid)
+                        
                         # Check if already exists
                         existing = (
                             session.query(Grant)
-                            .filter(
-                                Grant.activityid == grant.activityid,
-                                Grant.user_id == user_id,
-                            )
+                            .filter_by(activityid=grant.activityid)
                             .first()
                         )
 
@@ -417,7 +262,11 @@ class ActivityCollector:
                             if self.verbose:
                                 logging.info(f"  Added grant: {grant.title[:50] if grant.title else 'Untitled'}")
                         else:
-                            duplicates += 1
+                            # Update existing record using merge
+                            session.merge(grant)
+                            grants_updated += 1
+                            if self.verbose:
+                                logging.info(f"  Updated grant: {grant.title[:50] if grant.title else 'Untitled'}")
 
                 except IntegrityError:
                     session.rollback()
@@ -425,7 +274,9 @@ class ActivityCollector:
                     continue
                 except Exception as e:
                     if self.verbose:
-                        logging.info(f"  Error processing grant: {e}")
+                        logging.error(f"  Error processing grant: {e}")
+                    with self.stats_lock:
+                        self.stats["parse_errors"] += 1
                     continue
 
             # Commit all changes for this user
@@ -442,20 +293,19 @@ class ActivityCollector:
             with self.stats_lock:
                 self.stats["users_processed"] += 1
                 self.stats["publications_added"] += publications_added
+                self.stats["publications_updated"] += publications_updated
                 self.stats["grants_added"] += grants_added
+                self.stats["grants_updated"] += grants_updated
                 self.stats["duplicates_skipped"] += duplicates
-
-            # if publications_added > 0 or grants_added > 0:
-            #     logging.info(f"User {user_id}: +{publications_added} pubs, +{grants_added} grants")
 
         except Exception as e:
             session.rollback()
             with self.stats_lock:
                 self.stats["users_processed"] += 1
                 self.stats["db_errors"] += 1
-            logging.info(f"Error processing user {user_id}: {e}")
+            logging.error(f"Error processing user {user_id}: {e}")
             if self.verbose:
-                traceback.logging.info_exc()
+                traceback.print_exc()
         finally:
             session.close()
 
@@ -470,25 +320,69 @@ class ActivityCollector:
         finally:
             session.close()
 
+    def delete_stale_data(self):
+        """Delete records that weren't seen in the API responses."""
+        # Safety check: Don't delete if we didn't track any activities
+        if not self.tracker.seen_publications and not self.tracker.seen_grants:
+            logging.warning("No publications or grants were tracked during sync.")
+            logging.warning("Skipping deletion to prevent data loss.")
+            return
+            
+        session = self.session_factory()
+        try:
+            logging.info("Deleting stale records...")
+            
+            # Delete stale publications
+            publications_deleted = 0
+            if self.tracker.seen_publications:
+                publications_deleted = delete_stale_activities(
+                    session, 
+                    Publication, 
+                    'activityid', 
+                    self.tracker.seen_publications
+                )
+            
+            # Delete stale grants
+            grants_deleted = 0
+            if self.tracker.seen_grants:
+                grants_deleted = delete_stale_activities(
+                    session, 
+                    Grant, 
+                    'activityid', 
+                    self.tracker.seen_grants
+                )
+            
+            session.commit()
+            
+            # Update stats
+            self.stats["publications_deleted"] = publications_deleted
+            self.stats["grants_deleted"] = grants_deleted
+            
+            logging.info(f"Deleted: {publications_deleted} publications, {grants_deleted} grants")
+            
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error deleting stale records: {e}")
+        finally:
+            session.close()
+
     def collect_activities(self, max_workers: int = 12, batch_size: int = None):
         """Collect activities for all users"""
-        spinner = Halo(text="Getting user list...", spinner="line", color="magenta")
-        spinner.start()
+        logging.info("Starting data synchronization...")
 
         user_ids = self.get_user_ids()
 
         if not user_ids:
-            spinner.fail("No users found in database")
+            logging.error("No users found or error fetching users")
             return
 
         # If batch_size is specified, process only that many users
         if batch_size:
             user_ids = user_ids[:batch_size]
-            spinner.text = f"Processing {batch_size} users (batch mode)..."
+            logging.info(f"Processing {batch_size} users (batch mode)...")
         else:
-            spinner.text = f"Processing {len(user_ids)} users..."
+            logging.info(f"Processing {len(user_ids)} users...")
 
-        spinner.succeed(f"Found {len(user_ids)} users to process")
         logging.info(f"Using {max_workers} workers")
         logging.info("Fetching from:")
         logging.info("  Publications: /activities/-21")
@@ -512,23 +406,26 @@ class ActivityCollector:
                             logging.info(f"\nProgress: {i}/{len(user_ids)} users ({rate:.1f} users/sec)")
                             logging.info(f"  Users with publications: {self.stats['users_with_publications']}")
                             logging.info(f"  Users with grants: {self.stats['users_with_grants']}")
-                            logging.info(f"  Publications added: {self.stats['publications_added']}")
-                            logging.info(f"  Grants added: {self.stats['grants_added']}")
+                            logging.info(f"  Publications: +{self.stats['publications_added']} new, ~{self.stats['publications_updated']} updated")
+                            logging.info(f"  Grants: +{self.stats['grants_added']} new, ~{self.stats['grants_updated']} updated")
                             logging.info(f"  Errors: {self.stats['db_errors'] + self.stats['parse_errors']}")
                 except Exception as e:
                     logging.error(f"Task failed: {e}")
 
+        # After processing all users, delete stale records
+        self.delete_stale_data()
+
         elapsed_time = time.time() - start_time
 
         logging.info("\n" + "=" * 60)
-        logging.info("✅ Data collection completed!")
+        logging.info("✅ Data synchronization completed!")
         logging.info(f"Time taken: {elapsed_time:.1f} seconds")
         logging.info("Final statistics:")
         logging.info(f"  Users processed: {self.stats['users_processed']}")
         logging.info(f"  Users with publications: {self.stats['users_with_publications']}")
         logging.info(f"  Users with grants: {self.stats['users_with_grants']}")
-        logging.info(f"  Publications added: {self.stats['publications_added']}")
-        logging.info(f"  Grants added: {self.stats['grants_added']}")
+        logging.info(f"  Publications: +{self.stats['publications_added']} added, ~{self.stats['publications_updated']} updated, -{self.stats['publications_deleted']} deleted")
+        logging.info(f"  Grants: +{self.stats['grants_added']} added, ~{self.stats['grants_updated']} updated, -{self.stats['grants_deleted']} deleted")
         logging.info(f"  Duplicates skipped: {self.stats['duplicates_skipped']}")
         logging.info(f"  Parse errors: {self.stats['parse_errors']}")
         logging.info(f"  Database errors: {self.stats['db_errors']}")
@@ -542,12 +439,12 @@ def main():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('gather_data.log'),
+            logging.FileHandler('collect_activities.log'),
             logging.StreamHandler()
         ]
     )
 
-    parser = argparse.ArgumentParser(description="Collect publications and grants for users")
+    parser = argparse.ArgumentParser(description="Sync publications and grants for users (add, update, delete)")
     parser.add_argument(
         "--workers",
         type=int,
