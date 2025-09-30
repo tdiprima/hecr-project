@@ -29,7 +29,6 @@ from models import Grant, Publication, User
 
 class InterfolioAPI:
     def __init__(self):
-        load_dotenv()
         self.api_key = os.getenv("API_PUBLIC_KEY")
         self.api_secret = os.getenv("API_PRIVATE_KEY")
         self.database_id = os.getenv("TENANT_1_DATABASE_ID")
@@ -129,7 +128,6 @@ class InterfolioAPI:
 
 class ActivityCollector:
     def __init__(self, verbose=False):
-        load_dotenv()
         self.database_url = os.getenv("DATABASE_URL")
         self.engine = create_engine(self.database_url, pool_size=20, max_overflow=30)
         self.session_factory = sessionmaker(bind=self.engine)
@@ -537,6 +535,8 @@ class ActivityCollector:
 
 
 def main():
+    load_dotenv()
+
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
