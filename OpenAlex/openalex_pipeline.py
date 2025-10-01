@@ -354,7 +354,7 @@ def run_pipeline(email: Optional[str] = None, num_authors: int = 3, num_pubs: in
         print(f"[AUTHOR {idx+1}/{len(authors)}] {author.name}")
         print(f"Works: {author.works_count} | Citations: {author.cited_by_count}")
         print(f"Affiliations: {', '.join(author.affiliations)}")
-        print(str("=" * 70))
+        print("=" * 70)
 
         # Get publications
         print("\n[STEP 2] Retrieving publications...")
