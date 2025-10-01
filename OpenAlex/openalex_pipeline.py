@@ -3,6 +3,7 @@ OpenAlex API Pipeline for Stony Brook University Research
 Queries authors, retrieves publications, processes PDFs, and validates content.
 """
 
+import os
 import json
 import re
 import time
@@ -89,8 +90,12 @@ class OpenAlexAPI:
         authors = []
 
         # Stony Brook University ROR ID
-        stonybrook_ror = "https://ror.org/05qwgg493"
+        # stonybrook_ror = "https://ror.org/05qwgg493"
 
+
+        # Stony Brook University ROR ID (just the identifier, not full URL)
+        stonybrook_ror = "05qwgg493"
+        
         # Query for authors with Stony Brook affiliation
         url = f"{self.BASE_URL}/authors"
         params = {
@@ -376,8 +381,6 @@ def run_pipeline(email: Optional[str] = None, num_authors: int = 3, num_pubs: in
                 print(f"  URL: {pub.pdf_url}")
 
                 # Download and process PDF (disabled by default for testing)
-                # Uncomment to enable:
-                """
                 pdf_path = f"paper_{pub_idx+1}.pdf"
                 if processor.download_pdf(pub.pdf_url, pdf_path):
                     print(f"  Downloaded to {pdf_path}")
@@ -395,7 +398,7 @@ def run_pipeline(email: Optional[str] = None, num_authors: int = 3, num_pubs: in
                     summary = processor.summarize_text(text)
                     if summary:
                         print(f"  Summary: {summary}")
-                """
+
             else:
                 print(f"  PDF: Not available ✗")
 
@@ -419,16 +422,13 @@ def run_pipeline(email: Optional[str] = None, num_authors: int = 3, num_pubs: in
 if __name__ == "__main__":
     # Example usage
     print("Starting pipeline...")
-    print(
-        "\nNOTE: Uncomment PDF processing code in run_pipeline() to enable full PDF analysis"
-    )
-    print(
-        "Install dependencies: pip install requests PyPDF2 pdfplumber transformers torch\n"
-    )
+
+    # Get email from environment variable, fallback to default
+    email = os.getenv("EMAIL", "your.email@example.com")
 
     # Run with your email for faster API access
     run_pipeline(
-        email="your.email@example.com",  # Replace with your email
+        email=email,
         num_authors=3,
         num_pubs=2,
     )
