@@ -4,7 +4,6 @@ Queries authors, retrieves publications, processes PDFs, and validates content.
 """
 
 import os
-import json
 import re
 import time
 from dataclasses import dataclass
@@ -92,10 +91,9 @@ class OpenAlexAPI:
         # Stony Brook University ROR ID
         # stonybrook_ror = "https://ror.org/05qwgg493"
 
-
         # Stony Brook University ROR ID (just the identifier, not full URL)
         stonybrook_ror = "05qwgg493"
-        
+
         # Query for authors with Stony Brook affiliation
         url = f"{self.BASE_URL}/authors"
         params = {
@@ -104,16 +102,17 @@ class OpenAlexAPI:
             "sort": "cited_by_count:desc",  # Get most cited authors first
         }
 
-        print(f"Querying OpenAlex for Stony Brook authors...")
+        print("Querying OpenAlex for Stony Brook authors...")
         response = self.session.get(url, params=params)
         response.raise_for_status()
 
         data = response.json()
 
         for result in data.get("results", [])[:max_results]:
-            affiliations = []
-            for inst in result.get("last_known_institutions", []):
-                affiliations.append(inst.get("display_name", ""))
+            affiliations = [
+                inst.get("display_name", "")
+                for inst in result.get("last_known_institutions", [])
+            ]
 
             author = Author(
                 id=result["id"],
@@ -193,8 +192,7 @@ class PDFProcessor:
             response.raise_for_status()
 
             with open(output_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                f.writelines(response.iter_content(chunk_size=8192))
 
             return True
         except Exception as e:
@@ -356,10 +354,10 @@ def run_pipeline(email: Optional[str] = None, num_authors: int = 3, num_pubs: in
         print(f"[AUTHOR {idx+1}/{len(authors)}] {author.name}")
         print(f"Works: {author.works_count} | Citations: {author.cited_by_count}")
         print(f"Affiliations: {', '.join(author.affiliations)}")
-        print(f"{'=' * 70}")
+        print(str("=" * 70))
 
         # Get publications
-        print(f"\n[STEP 2] Retrieving publications...")
+        print("\n[STEP 2] Retrieving publications...")
         publications = api.get_author_publications(author.id, max_results=num_pubs)
 
         if not publications:
@@ -377,30 +375,30 @@ def run_pipeline(email: Optional[str] = None, num_authors: int = 3, num_pubs: in
 
             # Check if PDF is available
             if pub.pdf_url:
-                print(f"  PDF: Available ✓")
+                print("  PDF: Available ✓")
                 print(f"  URL: {pub.pdf_url}")
 
                 # Download and process PDF (disabled by default for testing)
                 pdf_path = f"paper_{pub_idx+1}.pdf"
                 if processor.download_pdf(pub.pdf_url, pdf_path):
                     print(f"  Downloaded to {pdf_path}")
-                    
+
                     text = processor.extract_text(pdf_path)
                     print(f"  Extracted {len(text)} characters")
-                    
+
                     # Check for Stony Brook content
                     check = processor.check_stonybrook_content(text)
                     print(f"  Stony Brook mentions: {check['count']}")
-                    if check['found']:
+                    if check["found"]:
                         print(f"  Context: {check['contexts'][0]}")
-                    
+
                     # Summarize
                     summary = processor.summarize_text(text)
                     if summary:
                         print(f"  Summary: {summary}")
 
             else:
-                print(f"  PDF: Not available ✗")
+                print("  PDF: Not available ✗")
 
             # Show abstract if available
             if pub.abstract:
