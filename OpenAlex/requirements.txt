@@ -9,7 +9,6 @@ pytesseract==0.3.13
 pillow==11.3.0
 fitz==0.0.1.dev2  # comes with pymupdf
 # pip install --upgrade pymupdf
-frontend==0.0.3  # for fitz
 
 # For summarization
 transformers==4.55.2
