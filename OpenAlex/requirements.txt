@@ -7,10 +7,10 @@ pdfplumber==0.11.7
 pdf2image==1.17.0
 pytesseract==0.3.13
 pillow==11.3.0
-fitz==0.0.1.dev2
+fitz==0.0.1.dev2  # comes with pymupdf
+# pip install --upgrade pymupdf
+frontend==0.0.3  # for fitz
 
 # For summarization
 transformers==4.55.2
 torch==2.2.2
-
-frontend==0.0.3
