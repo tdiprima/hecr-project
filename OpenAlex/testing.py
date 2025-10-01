@@ -1,6 +1,9 @@
+import os
+
 import requests
 
-headers = {"User-Agent": "BearBot/0.1 (bear@example.com)"}  # put your email here
+email = os.getenv("EMAIL", "bear@example.com")
+headers = {"User-Agent": f"BearBot/0.1 ({email})"}
 
 response = requests.get(
     "https://api.openalex.org/authors",

@@ -84,15 +84,14 @@ class OpenAlexAPI:
         Find authors affiliated with Stony Brook University.
 
         Uses institution ROR ID for accurate matching.
-        Stony Brook University ROR: https://ror.org/05qwgg493
+        Stony Brook University ROR: https://ror.org/05qghxh33
+        Stony Brook Medicine: https://ror.org/05wyq9e07
+        State University of New York: https://ror.org/01q1z8k08
         """
         authors = []
 
-        # Stony Brook University ROR ID
-        # stonybrook_ror = "https://ror.org/05qwgg493"
-
         # Stony Brook University ROR ID (just the identifier, not full URL)
-        stonybrook_ror = "05qwgg493"
+        stonybrook_ror = "05qghxh33"
 
         # Query for authors with Stony Brook affiliation
         url = f"{self.BASE_URL}/authors"
