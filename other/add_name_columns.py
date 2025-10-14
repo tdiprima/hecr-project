@@ -75,7 +75,7 @@ def add_name_columns(input_file, output_file):
     print(f"\n{'=' * 60}")
     print(f"Added Lastname and Firstname columns to {len(rows)} rows")
     print(f"Output written to: {output_file}")
-    print('=' * 60)
+    print("=" * 60)
 
 
 def main():

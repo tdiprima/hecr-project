@@ -92,7 +92,7 @@ def update_authors_file(authors_file, profiles_file, output_file):
     print(f"  Updated: {updates_count} records")
     print(f"  Not found: {not_found_count} records")
     print(f"  Output written to: {output_file}")
-    print('=' * 60)
+    print("=" * 60)
 
 
 def main():
