@@ -2,7 +2,7 @@
 """
 Improved script to sync publications and grants for all users from Interfolio API
 - Adds new records
-- Updates existing records  
+- Updates existing records
 - Deletes stale records not in API
 Publications are in /activities/-21
 Grants are in /activities/-11
@@ -30,18 +30,14 @@ from threading import Lock
 from typing import Dict, List, Optional
 
 import requests
+from activity_utils import (ActivityTracker, create_grant_from_api,
+                            create_publication_from_api,
+                            delete_stale_activities)
 from dotenv import load_dotenv
+from models import Grant, Publication, User
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-
-from models import Grant, Publication, User
-from activity_utils import (
-    ActivityTracker,
-    create_publication_from_api,
-    create_grant_from_api,
-    delete_stale_activities,
-)
 
 
 class InterfolioAPI:
@@ -175,7 +171,7 @@ class ActivityCollector:
         try:
             # Track this user as seen
             self.tracker.track_user(user_id)
-            
+
             # Get publications from API
             publications = self.api.get_user_publications(user_id)
 
@@ -210,7 +206,7 @@ class ActivityCollector:
                     if publication and publication.activityid:
                         # Track this publication as seen
                         self.tracker.track_publication(publication.activityid)
-                        
+
                         # Check if already exists
                         existing = (
                             session.query(Publication)
@@ -222,13 +218,17 @@ class ActivityCollector:
                             session.add(publication)
                             publications_added += 1
                             if self.verbose:
-                                logging.info(f"  Added publication: {publication.title[:50] if publication.title else 'Untitled'}")
+                                logging.info(
+                                    f"  Added publication: {publication.title[:50] if publication.title else 'Untitled'}"
+                                )
                         else:
                             # Update existing record using merge
                             session.merge(publication)
                             publications_updated += 1
                             if self.verbose:
-                                logging.info(f"  Updated publication: {publication.title[:50] if publication.title else 'Untitled'}")
+                                logging.info(
+                                    f"  Updated publication: {publication.title[:50] if publication.title else 'Untitled'}"
+                                )
 
                 except IntegrityError:
                     session.rollback()
@@ -248,7 +248,7 @@ class ActivityCollector:
                     if grant and grant.activityid:
                         # Track this grant as seen
                         self.tracker.track_grant(grant.activityid)
-                        
+
                         # Check if already exists
                         existing = (
                             session.query(Grant)
@@ -260,13 +260,17 @@ class ActivityCollector:
                             session.add(grant)
                             grants_added += 1
                             if self.verbose:
-                                logging.info(f"  Added grant: {grant.title[:50] if grant.title else 'Untitled'}")
+                                logging.info(
+                                    f"  Added grant: {grant.title[:50] if grant.title else 'Untitled'}"
+                                )
                         else:
                             # Update existing record using merge
                             session.merge(grant)
                             grants_updated += 1
                             if self.verbose:
-                                logging.info(f"  Updated grant: {grant.title[:50] if grant.title else 'Untitled'}")
+                                logging.info(
+                                    f"  Updated grant: {grant.title[:50] if grant.title else 'Untitled'}"
+                                )
 
                 except IntegrityError:
                     session.rollback()
@@ -327,39 +331,35 @@ class ActivityCollector:
             logging.warning("No publications or grants were tracked during sync.")
             logging.warning("Skipping deletion to prevent data loss.")
             return
-            
+
         session = self.session_factory()
         try:
             logging.info("Deleting stale records...")
-            
+
             # Delete stale publications
             publications_deleted = 0
             if self.tracker.seen_publications:
                 publications_deleted = delete_stale_activities(
-                    session, 
-                    Publication, 
-                    'activityid', 
-                    self.tracker.seen_publications
+                    session, Publication, "activityid", self.tracker.seen_publications
                 )
-            
+
             # Delete stale grants
             grants_deleted = 0
             if self.tracker.seen_grants:
                 grants_deleted = delete_stale_activities(
-                    session, 
-                    Grant, 
-                    'activityid', 
-                    self.tracker.seen_grants
+                    session, Grant, "activityid", self.tracker.seen_grants
                 )
-            
+
             session.commit()
-            
+
             # Update stats
             self.stats["publications_deleted"] = publications_deleted
             self.stats["grants_deleted"] = grants_deleted
-            
-            logging.info(f"Deleted: {publications_deleted} publications, {grants_deleted} grants")
-            
+
+            logging.info(
+                f"Deleted: {publications_deleted} publications, {grants_deleted} grants"
+            )
+
         except Exception as e:
             session.rollback()
             logging.error(f"Error deleting stale records: {e}")
@@ -403,12 +403,24 @@ class ActivityCollector:
                         with self.stats_lock:
                             elapsed = time.time() - start_time
                             rate = i / elapsed if elapsed > 0 else 0
-                            logging.info(f"\nProgress: {i}/{len(user_ids)} users ({rate:.1f} users/sec)")
-                            logging.info(f"  Users with publications: {self.stats['users_with_publications']}")
-                            logging.info(f"  Users with grants: {self.stats['users_with_grants']}")
-                            logging.info(f"  Publications: +{self.stats['publications_added']} new, ~{self.stats['publications_updated']} updated")
-                            logging.info(f"  Grants: +{self.stats['grants_added']} new, ~{self.stats['grants_updated']} updated")
-                            logging.info(f"  Errors: {self.stats['db_errors'] + self.stats['parse_errors']}")
+                            logging.info(
+                                f"\nProgress: {i}/{len(user_ids)} users ({rate:.1f} users/sec)"
+                            )
+                            logging.info(
+                                f"  Users with publications: {self.stats['users_with_publications']}"
+                            )
+                            logging.info(
+                                f"  Users with grants: {self.stats['users_with_grants']}"
+                            )
+                            logging.info(
+                                f"  Publications: +{self.stats['publications_added']} new, ~{self.stats['publications_updated']} updated"
+                            )
+                            logging.info(
+                                f"  Grants: +{self.stats['grants_added']} new, ~{self.stats['grants_updated']} updated"
+                            )
+                            logging.info(
+                                f"  Errors: {self.stats['db_errors'] + self.stats['parse_errors']}"
+                            )
                 except Exception as e:
                     logging.error(f"Task failed: {e}")
 
@@ -422,29 +434,39 @@ class ActivityCollector:
         logging.info(f"Time taken: {elapsed_time:.1f} seconds")
         logging.info("Final statistics:")
         logging.info(f"  Users processed: {self.stats['users_processed']}")
-        logging.info(f"  Users with publications: {self.stats['users_with_publications']}")
+        logging.info(
+            f"  Users with publications: {self.stats['users_with_publications']}"
+        )
         logging.info(f"  Users with grants: {self.stats['users_with_grants']}")
-        logging.info(f"  Publications: +{self.stats['publications_added']} added, ~{self.stats['publications_updated']} updated, -{self.stats['publications_deleted']} deleted")
-        logging.info(f"  Grants: +{self.stats['grants_added']} added, ~{self.stats['grants_updated']} updated, -{self.stats['grants_deleted']} deleted")
+        logging.info(
+            f"  Publications: +{self.stats['publications_added']} added, ~{self.stats['publications_updated']} updated, -{self.stats['publications_deleted']} deleted"
+        )
+        logging.info(
+            f"  Grants: +{self.stats['grants_added']} added, ~{self.stats['grants_updated']} updated, -{self.stats['grants_deleted']} deleted"
+        )
         logging.info(f"  Duplicates skipped: {self.stats['duplicates_skipped']}")
         logging.info(f"  Parse errors: {self.stats['parse_errors']}")
         logging.info(f"  Database errors: {self.stats['db_errors']}")
         if elapsed_time > 0:
-            logging.info(f"  Processing rate: {len(user_ids)/elapsed_time:.1f} users/sec")
+            logging.info(
+                f"  Processing rate: {len(user_ids)/elapsed_time:.1f} users/sec"
+            )
 
 
 def main():
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler('collect_activities.log'),
-            logging.StreamHandler()
-        ]
+            logging.FileHandler("collect_activities.log"),
+            logging.StreamHandler(),
+        ],
     )
 
-    parser = argparse.ArgumentParser(description="Sync publications and grants for users (add, update, delete)")
+    parser = argparse.ArgumentParser(
+        description="Sync publications and grants for users (add, update, delete)"
+    )
     parser.add_argument(
         "--workers",
         type=int,
@@ -457,7 +479,9 @@ def main():
         default=None,
         help="Process only first N users (for testing)",
     )
-    parser.add_argument("--verbose", action="store_true", help="Show detailed debug output")
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed debug output"
+    )
 
     args = parser.parse_args()
 

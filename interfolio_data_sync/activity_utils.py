@@ -1,43 +1,44 @@
 """
 Modular utility functions for syncing activities (publications and grants).
 """
+
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Set, Type
 
-from sqlalchemy.orm import Session
-
 from models import Grant, Publication
+from sqlalchemy.orm import Session
 
 
 @dataclass
 class ActivityTracker:
     """Tracks IDs seen during synchronization to identify stale records for deletion."""
+
     seen_users: Set[str] = field(default_factory=set)
     seen_publications: Set[int] = field(default_factory=set)
     seen_grants: Set[int] = field(default_factory=set)
-    
+
     def track_user(self, user_id: str):
         """Track a user ID as seen during sync."""
         if user_id:
             self.seen_users.add(user_id)
-    
+
     def track_publication(self, activity_id: int):
         """Track a publication activity ID as seen during sync."""
         if activity_id:
             self.seen_publications.add(activity_id)
-    
+
     def track_grant(self, activity_id: int):
         """Track a grant activity ID as seen during sync."""
         if activity_id:
             self.seen_grants.add(activity_id)
-    
+
     def clear(self):
         """Clear all tracked IDs."""
         self.seen_users.clear()
         self.seen_publications.clear()
         self.seen_grants.clear()
-    
+
     @property
     def summary(self) -> Dict[str, int]:
         """Get a summary of tracked items."""
@@ -51,46 +52,43 @@ class ActivityTracker:
 def truncate_field(value: Optional[Any], max_length: int) -> Optional[str]:
     """
     Truncate a field to max_length if it's too long.
-    
+
     Args:
         value: The value to truncate (can be any type)
         max_length: Maximum allowed length
-        
+
     Returns:
         Truncated string or original value if not a string or within limits
     """
     if value is None:
         return None
-    
+
     str_value = str(value) if not isinstance(value, str) else value
-    
+
     if len(str_value) > max_length:
         return str_value[:max_length]
-    
+
     return str_value
 
 
 def delete_stale_activities(
-    session: Session,
-    model_class: Type[Any],
-    id_field: str,
-    seen_ids: Set[Any]
+    session: Session, model_class: Type[Any], id_field: str, seen_ids: Set[Any]
 ) -> int:
     """
     Delete records from database that weren't seen in the API response.
-    
+
     Args:
         session: SQLAlchemy database session
         model_class: The model class to delete from (Publication or Grant)
         id_field: The field name to use for ID comparison (usually 'activityid')
         seen_ids: Set of IDs that were seen in the API
-        
+
     Returns:
         Number of records deleted
     """
     # Get all existing IDs from database
     existing_records = session.query(model_class).all()
-    
+
     deleted_count = 0
     for record in existing_records:
         record_id = getattr(record, id_field)
@@ -98,23 +96,27 @@ def delete_stale_activities(
         if record_id and record_id not in seen_ids:
             session.delete(record)
             deleted_count += 1
-            
+
             # Log what we're deleting for audit trail
-            if hasattr(record, 'title'):
-                title = getattr(record, 'title', 'Untitled')
-                logging.debug(f"Deleting {model_class.__name__} {record_id}: {title[:50] if title else 'Untitled'}")
-    
+            if hasattr(record, "title"):
+                title = getattr(record, "title", "Untitled")
+                logging.debug(
+                    f"Deleting {model_class.__name__} {record_id}: {title[:50] if title else 'Untitled'}"
+                )
+
     return deleted_count
 
 
-def create_publication_from_api(activity_data: Dict, user_id: str) -> Optional[Publication]:
+def create_publication_from_api(
+    activity_data: Dict, user_id: str
+) -> Optional[Publication]:
     """
     Create a Publication object from Interfolio API activity data.
-    
+
     Args:
         activity_data: Raw activity data from the API
         user_id: The user ID this publication belongs to
-        
+
     Returns:
         Publication object or None if not a valid publication type
     """
@@ -171,9 +173,7 @@ def create_publication_from_api(activity_data: Dict, user_id: str) -> Optional[P
             status=truncate_field(
                 status_info.get("status") if status_info else None, 50
             ),
-            term=truncate_field(
-                status_info.get("term") if status_info else None, 50
-            ),
+            term=truncate_field(status_info.get("term") if status_info else None, 50),
             status_year=truncate_field(
                 (
                     str(status_info.get("year"))
@@ -191,11 +191,11 @@ def create_publication_from_api(activity_data: Dict, user_id: str) -> Optional[P
 def create_grant_from_api(activity_data: Dict, user_id: str) -> Optional[Grant]:
     """
     Create a Grant object from Interfolio API activity data.
-    
+
     Args:
         activity_data: Raw activity data from the API
         user_id: The user ID this grant belongs to
-        
+
     Returns:
         Grant object or None if not a valid grant
     """
@@ -290,6 +290,7 @@ def create_grant_from_api(activity_data: Dict, user_id: str) -> Optional[Grant]:
 @dataclass
 class SyncStats:
     """Statistics tracker for sync operations."""
+
     users_processed: int = 0
     publications_added: int = 0
     publications_updated: int = 0
@@ -298,12 +299,16 @@ class SyncStats:
     grants_updated: int = 0
     grants_deleted: int = 0
     errors: int = 0
-    
+
     def log_summary(self):
         """Log a summary of the sync stats."""
         logging.info("Sync Summary:")
         logging.info(f"  Users processed: {self.users_processed}")
-        logging.info(f"  Publications: +{self.publications_added}, ~{self.publications_updated}, -{self.publications_deleted}")
-        logging.info(f"  Grants: +{self.grants_added}, ~{self.grants_updated}, -{self.grants_deleted}")
+        logging.info(
+            f"  Publications: +{self.publications_added}, ~{self.publications_updated}, -{self.publications_deleted}"
+        )
+        logging.info(
+            f"  Grants: +{self.grants_added}, ~{self.grants_updated}, -{self.grants_deleted}"
+        )
         if self.errors > 0:
             logging.warning(f"  Errors encountered: {self.errors}")

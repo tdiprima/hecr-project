@@ -20,11 +20,10 @@ from typing import Dict, List, Optional
 import requests
 from dotenv import load_dotenv
 from halo import Halo
+from models import Grant, Publication, User
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-
-from models import Grant, Publication, User
 
 
 class InterfolioAPI:
@@ -208,9 +207,7 @@ class ActivityCollector:
                 issn=self._truncate_field(fields.get("ISSN"), 20),
                 doi=self._truncate_field(fields.get("DOI"), 255),
                 url=self._truncate_field(fields.get("URL"), 500),
-                description=fields.get(
-                    "Description"
-                ),
+                description=fields.get("Description"),
                 origin=self._truncate_field(fields.get("Origin"), 50),
                 status=self._truncate_field(
                     status_info.get("status") if status_info else None, 50
@@ -381,7 +378,9 @@ class ActivityCollector:
                             session.add(publication)
                             publications_added += 1
                             if self.verbose:
-                                logging.info(f"  Added publication: {publication.title[:50] if publication.title else 'Untitled'}")
+                                logging.info(
+                                    f"  Added publication: {publication.title[:50] if publication.title else 'Untitled'}"
+                                )
                         else:
                             duplicates += 1
 
@@ -413,7 +412,9 @@ class ActivityCollector:
                             session.add(grant)
                             grants_added += 1
                             if self.verbose:
-                                logging.info(f"  Added grant: {grant.title[:50] if grant.title else 'Untitled'}")
+                                logging.info(
+                                    f"  Added grant: {grant.title[:50] if grant.title else 'Untitled'}"
+                                )
                         else:
                             duplicates += 1
 
@@ -507,12 +508,24 @@ class ActivityCollector:
                         with self.stats_lock:
                             elapsed = time.time() - start_time
                             rate = i / elapsed if elapsed > 0 else 0
-                            logging.info(f"\nProgress: {i}/{len(user_ids)} users ({rate:.1f} users/sec)")
-                            logging.info(f"  Users with publications: {self.stats['users_with_publications']}")
-                            logging.info(f"  Users with grants: {self.stats['users_with_grants']}")
-                            logging.info(f"  Publications added: {self.stats['publications_added']}")
-                            logging.info(f"  Grants added: {self.stats['grants_added']}")
-                            logging.info(f"  Errors: {self.stats['db_errors'] + self.stats['parse_errors']}")
+                            logging.info(
+                                f"\nProgress: {i}/{len(user_ids)} users ({rate:.1f} users/sec)"
+                            )
+                            logging.info(
+                                f"  Users with publications: {self.stats['users_with_publications']}"
+                            )
+                            logging.info(
+                                f"  Users with grants: {self.stats['users_with_grants']}"
+                            )
+                            logging.info(
+                                f"  Publications added: {self.stats['publications_added']}"
+                            )
+                            logging.info(
+                                f"  Grants added: {self.stats['grants_added']}"
+                            )
+                            logging.info(
+                                f"  Errors: {self.stats['db_errors'] + self.stats['parse_errors']}"
+                            )
                 except Exception as e:
                     logging.error(f"Task failed: {e}")
 
@@ -523,7 +536,9 @@ class ActivityCollector:
         logging.info(f"Time taken: {elapsed_time:.1f} seconds")
         logging.info("Final statistics:")
         logging.info(f"  Users processed: {self.stats['users_processed']}")
-        logging.info(f"  Users with publications: {self.stats['users_with_publications']}")
+        logging.info(
+            f"  Users with publications: {self.stats['users_with_publications']}"
+        )
         logging.info(f"  Users with grants: {self.stats['users_with_grants']}")
         logging.info(f"  Publications added: {self.stats['publications_added']}")
         logging.info(f"  Grants added: {self.stats['grants_added']}")
@@ -531,7 +546,9 @@ class ActivityCollector:
         logging.info(f"  Parse errors: {self.stats['parse_errors']}")
         logging.info(f"  Database errors: {self.stats['db_errors']}")
         if elapsed_time > 0:
-            logging.info(f"  Processing rate: {len(user_ids)/elapsed_time:.1f} users/sec")
+            logging.info(
+                f"  Processing rate: {len(user_ids)/elapsed_time:.1f} users/sec"
+            )
 
 
 def main():
@@ -540,14 +557,13 @@ def main():
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('gather_data.log'),
-            logging.StreamHandler()
-        ]
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler("gather_data.log"), logging.StreamHandler()],
     )
 
-    parser = argparse.ArgumentParser(description="Collect publications and grants for users")
+    parser = argparse.ArgumentParser(
+        description="Collect publications and grants for users"
+    )
     parser.add_argument(
         "--workers",
         type=int,
@@ -560,7 +576,9 @@ def main():
         default=None,
         help="Process only first N users (for testing)",
     )
-    parser.add_argument("--verbose", action="store_true", help="Show detailed debug output")
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed debug output"
+    )
 
     args = parser.parse_args()
 
