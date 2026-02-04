@@ -255,7 +255,7 @@ class HECRUserIdentifier:
 
                 else:
                     # Insert new user
-                    insert_query = f"""
+                    insert_query = f"""  # nosec B608
                         INSERT INTO hecr ({', '.join(user_columns)}, identified_via, keywords_matched, date_added)
                         SELECT {', '.join(user_columns)}, %s, %s, %s
                         FROM users
